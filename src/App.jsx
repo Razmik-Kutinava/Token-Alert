@@ -1,21 +1,11 @@
-import { createSignal, createEffect, For, onCleanup } from 'solid-js';
-import { 
-  Bell, 
-  Star, 
-  User, 
-  TrendingUp, 
-  Edit3, 
-  Trash2, 
-  Plus,
-  Check,
-  X,
-  AlertTriangle,
-  Wifi,
-  WifiOff
-} from 'lucide-solid';
+import { createSignal, createEffect, onCleanup } from 'solid-js';
 import { realAPI } from './realAPI';
-import { AuthComponent, isAuthenticated, currentUser } from './SimpleAuth';
+import { AuthComponent, isAuthenticated } from './SimpleAuth';
 import { simpleAPI } from './simpleAPI';
+import { UserProfile } from './UserProfile';
+import { Toast } from './components/Toast';
+import { Header } from './components/Header';
+import { Dashboard } from './screens/Dashboard';
 
 /**
  * Главное приложение Token Alert Manager
@@ -26,6 +16,7 @@ function App() {
   const [isLoading, setIsLoading] = createSignal(true);
   const [toast, setToast] = createSignal(null);
   const [isOnline, setIsOnline] = createSignal(true);
+  const [currentPage, setCurrentPage] = createSignal('dashboard'); // Навигация между страницами
   
   // Сигналы для живого табло цен
   const [livePrices, setLivePrices] = createSignal({});
@@ -41,630 +32,184 @@ function App() {
   
   // Получаем токены из API
   const tokens = realAPI.getSupportedTokens();
-  
-  // Тарифные планы
-  const plans = [
-    {
-      name: 'Free',
-      price: '0$',
-      period: 'навсегда',
-      features: ['3 уведомления', 'Обновление 1 раз/час', 'Только Web Push'],
-      maxAlerts: 3,
-      isPopular: false
-    },
-    {
-      name: 'Pro',
-      price: '3$',
-      period: 'месяц',
-      features: ['20 уведомлений', 'Обновление каждые 5 минут', 'Web + Telegram'],
-      maxAlerts: 20,
-      isPopular: true
-    },
-    {
-      name: 'Premium',
-      price: '8$',
-      period: 'месяц',
-      features: ['Безлимит уведомлений', 'Все типы оповещений', 'Включая SMS'],
-      maxAlerts: Infinity,
-      isPopular: false
-    }
-  ];
-  
-  const currentPlan = plans[1]; // Pro Plan
-  
-  /**
-   * Загрузка оповещений при инициализации
-   */
-  createEffect(async () => {
-    if (isAuthenticated()) {
-      try {
-        setIsLoading(true);
-        const fetchedAlerts = await simpleAPI.getAlerts();
-        setAlerts(fetchedAlerts);
-        setIsOnline(true);
-      } catch (error) {
-        console.error('Error fetching alerts:', error);
-        setIsOnline(false);
-        showToast('Ошибка загрузки данных. Проверьте подключение к интернету.', 'error');
-      } finally {
-        setIsLoading(false);
-      }
-    } else {
-      setAlerts([]);
-      setIsLoading(false);
-    }
+
+  // Сигнал для нового алерта
+  const [newAlert, setNewAlert] = createSignal({
+    token: '',
+    type: 'above',
+    price: 0
   });
-  
-  /**
-   * Загрузка актуальных цен всех токенов
-   */
-  const loadLivePrices = async () => {
+
+  // Обработчики состояния сети
+  createEffect(() => {
+    const handleOnline = () => setIsOnline(true);
+    const handleOffline = () => setIsOnline(false);
+    
+    window.addEventListener('online', handleOnline);
+    window.addEventListener('offline', handleOffline);
+    
+    onCleanup(() => {
+      window.removeEventListener('online', handleOnline);
+      window.removeEventListener('offline', handleOffline);
+    });
+  });
+
+  // Функция загрузки цен
+  const fetchLivePrices = async () => {
     try {
-      setPricesLoading(true);
-      const prices = await realAPI.fetchAllTokenPrices();
-      setLivePrices(prices);
+      if (!isOnline()) return;
+      
+      const tokenIds = tokens.map(t => t.id).join(',');
+      const response = await fetch(
+        `https://api.coingecko.com/api/v3/simple/price?ids=${tokenIds}&vs_currencies=usd&include_24hr_change=true`
+      );
+      
+      if (!response.ok) throw new Error('Network error');
+      
+      const data = await response.json();
+      
+      // Преобразуем данные в удобный формат
+      const formattedPrices = {};
+      Object.keys(data).forEach(tokenId => {
+        formattedPrices[tokenId] = {
+          usd: data[tokenId].usd,
+          change24h: data[tokenId].usd_24h_change || 0
+        };
+      });
+      
+      setLivePrices(formattedPrices);
       setLastUpdated(new Date());
-      setIsOnline(true);
+      setPricesLoading(false);
     } catch (error) {
-      console.error('Error fetching live prices:', error);
-      setIsOnline(false);
-    } finally {
+      console.error('Ошибка загрузки цен:', error);
       setPricesLoading(false);
     }
   };
-  
-  /**
-   * Загрузка цен при старте
-   */
+
+  // Эффект для загрузки цен при старте и периодического обновления
   createEffect(() => {
-    loadLivePrices();
-  });
-  
-  /**
-   * Автообновление цен каждые 30 секунд
-   */
-  createEffect(() => {
+    fetchLivePrices();
+    
     const interval = setInterval(() => {
-      loadLivePrices();
-    }, 30000); // 30 секунд для живого табло
-    
-    onCleanup(() => clearInterval(interval));
-  });
-  
-  /**
-   * Обновление цен каждые 2 минуты (реальный API имеет лимиты)
-   */
-  createEffect(() => {
-    if (!isAuthenticated()) return;
-    
-    const interval = setInterval(async () => {
-      try {
-        const updatedAlerts = await simpleAPI.getAlerts();
-        setAlerts([...updatedAlerts]);
-        setIsOnline(true);
-      } catch (error) {
-        console.error('Error updating prices:', error);
-        setIsOnline(false);
+      if (isOnline()) {
+        fetchLivePrices();
       }
-    }, 120000); // 2 минуты вместо 30 секунд для экономии API запросов
+    }, 30000); // Обновление каждые 30 секунд
     
     onCleanup(() => clearInterval(interval));
   });
-  
-  /**
-   * Показать Toast уведомление
-   */
-  const showToast = (message, type = 'success') => {
+
+  // Загрузка алертов при аутентификации
+  createEffect(() => {
+    if (isAuthenticated()) {
+      loadAlerts();
+    } else {
+      setAlerts([]);
+    }
+  });
+
+  // Функция загрузки алертов
+  const loadAlerts = async () => {
+    try {
+      setIsLoading(true);
+      const userAlerts = await simpleAPI.getAlerts();
+      setAlerts(userAlerts);
+    } catch (error) {
+      console.error('Ошибка загрузки алертов:', error);
+      showToast('Ошибка загрузки алертов', 'error');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  // Функция показа уведомлений
+  const showToast = (message, type = 'info') => {
     setToast({ message, type });
     setTimeout(() => setToast(null), 3000);
   };
-  
-  /**
-   * Добавить новое оповещение
-   */
-  const handleAddAlert = async (e) => {
-    e.preventDefault();
-    
-    if (!targetPrice() || isNaN(targetPrice())) {
-      showToast('Пожалуйста, введите корректную цену', 'error');
+
+  // Функция добавления алерта
+  const addAlert = async () => {
+    if (!newAlert().token || !newAlert().price) {
+      showToast('Заполните все поля', 'error');
       return;
     }
-    
-    const currentAlerts = alerts();
-    if (currentAlerts.length >= currentPlan.maxAlerts) {
-      showToast(`Превышен лимит тарифа ${currentPlan.name} (${currentPlan.maxAlerts} оповещений)`, 'error');
-      return;
-    }
-    
-    const selectedTokenData = tokens.find(t => t.id === selectedToken());
-    setIsSubmitting(true);
-    
+
     try {
-      const alertData = {
-        tokenId: selectedToken(),
-        tokenName: selectedTokenData.name,
-        condition: condition(),
-        targetPrice: parseFloat(targetPrice())
+      const alert = {
+        id: Date.now(),
+        token: newAlert().token,
+        type: newAlert().type,
+        price: newAlert().price,
+        createdAt: new Date().toISOString(),
+        isActive: true
       };
+
+      await simpleAPI.addAlert(alert);
+      setAlerts(prev => [...prev, alert]);
       
-      const response = await simpleAPI.createAlert(alertData);
+      // Сброс формы
+      setNewAlert({
+        token: '',
+        type: 'above',
+        price: 0
+      });
       
-      if (response.success) {
-        const updatedAlerts = await simpleAPI.getAlerts();
-        setAlerts(updatedAlerts);
-        setTargetPrice('');
-        showToast('Оповещение успешно добавлено!');
-        setIsOnline(true);
-      }
+      showToast('Алерт успешно создан!', 'success');
     } catch (error) {
-      console.error('Error creating alert:', error);
-      showToast('Ошибка при создании оповещения. Проверьте подключение к интернету.', 'error');
-      setIsOnline(false);
-    } finally {
-      setIsSubmitting(false);
+      console.error('Ошибка создания алерта:', error);
+      showToast('Ошибка создания алерта', 'error');
     }
   };
-  
-  /**
-   * Удалить оповещение
-   */
-  const handleDeleteAlert = async (alertId) => {
+
+  // Функция удаления алерта
+  const removeAlert = async (alertId) => {
     try {
-      const response = await simpleAPI.deleteAlert(alertId);
-      
-      if (response.success) {
-        const updatedAlerts = await simpleAPI.getAlerts();
-        setAlerts(updatedAlerts);
-        showToast('Оповещение удалено');
-        setIsOnline(true);
-      }
+      await simpleAPI.removeAlert(alertId);
+      setAlerts(prev => prev.filter(alert => alert.id !== alertId));
+      showToast('Алерт удален', 'success');
     } catch (error) {
-      console.error('Error deleting alert:', error);
-      showToast('Ошибка при удалении оповещения', 'error');
-      setIsOnline(false);
+      console.error('Ошибка удаления алерта:', error);
+      showToast('Ошибка удаления алерта', 'error');
     }
   };
-  
-  /**
-   * Получить цвет бейджа токена
-   */
-  const getTokenBadgeColor = (tokenId) => {
-    const colors = {
-      bitcoin: 'bg-gradient-to-r from-yellow-400 to-orange-500',
-      ethereum: 'bg-gradient-to-r from-blue-400 to-purple-500',
-      solana: 'bg-gradient-to-r from-purple-400 to-pink-500',
-      cardano: 'bg-gradient-to-r from-blue-500 to-indigo-600',
-      polkadot: 'bg-gradient-to-r from-pink-500 to-red-500',
-      avalanche: 'bg-gradient-to-r from-red-400 to-pink-500',
-      chainlink: 'bg-gradient-to-r from-blue-600 to-indigo-700',
-      polygon: 'bg-gradient-to-r from-purple-600 to-blue-600'
-    };
-    return colors[tokenId] || 'bg-gradient-to-r from-gray-400 to-gray-600';
-  };
-  
-  /**
-   * Получить цвет для изменения цены (зеленый/красный)
-   */
-  const getPriceChangeColor = (change) => {
-    if (change > 0) return 'text-green-400';
-    if (change < 0) return 'text-red-400';
-    return 'text-gray-400';
-  };
-  
-  /**
-   * Получить иконку для изменения цены (стрелка вверх/вниз)
-   */
-  const getPriceChangeIcon = (change) => {
-    if (change > 0) return '↗';
-    if (change < 0) return '↘';
-    return '→';
-  };
-  
-  /**
-   * Форматировать цену для отображения
-   */
-  const formatPrice = (price) => {
-    if (typeof price !== 'number' || isNaN(price)) return 'N/A';
-    
-    if (price >= 1000) {
-      return price.toLocaleString('en-US', {
-        minimumFractionDigits: 2,
-        maximumFractionDigits: 2
-      });
-    } else if (price >= 1) {
-      return price.toLocaleString('en-US', {
-        minimumFractionDigits: 2,
-        maximumFractionDigits: 4
-      });
-    } else {
-      return price.toLocaleString('en-US', {
-        minimumFractionDigits: 4,
-        maximumFractionDigits: 8
-      });
-    }
-  };
-  const getConditionText = (condition, targetPrice) => {
-    const formattedPrice = formatPrice(targetPrice);
-    const conditionMap = {
-      less: `< $${formattedPrice}`,
-      greater: `> $${formattedPrice}`,
-      equal: `= $${formattedPrice}`
-    };
-    return conditionMap[condition] || '';
-  };
-  
+
   return (
     <div class="min-h-screen bg-dark-bg text-white">
-      {/* Если пользователь не авторизован, показываем только форму входа */}
+      <Toast toast={toast()} />
+      
       {!isAuthenticated() ? (
-        <AuthComponent />
+        <div class="flex items-center justify-center min-h-screen">
+          <div class="max-w-md w-full mx-4">
+            <AuthComponent />
+          </div>
+        </div>
       ) : (
         <>
-          {/* Header - только для авторизованных пользователей */}
-          <header class="bg-dark-card border-b border-gray-700">
-            <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
-              <div class="flex items-center justify-between">
-                {/* Logo */}
-                <div class="flex items-center space-x-3">
-                  <div class="w-10 h-10 bg-gradient-to-r from-accent-red to-accent-teal rounded-lg flex items-center justify-center">
-                    <Bell class="w-6 h-6 text-white" />
-                  </div>
-                  <h1 class="text-2xl font-bold gradient-text">Token Alert</h1>
-                </div>
-                
-                {/* User Info */}
-                <div class="flex items-center space-x-4">
-                  {/* Connection Status */}
-                  <div class={`flex items-center space-x-2 px-3 py-1 rounded-full text-sm font-medium transition-all duration-300 ${
-                    isOnline() 
-                      ? 'bg-green-600/20 text-green-400 border border-green-600/30' 
-                      : 'bg-red-600/20 text-red-400 border border-red-600/30'
-                  }`}>
-                    {isOnline() ? (
-                      <>
-                        <Wifi class="w-4 h-4" />
-                        <span>Online</span>
-                      </>
-                    ) : (
-                      <>
-                        <WifiOff class="w-4 h-4" />
-                        <span>Offline</span>
-                      </>
-                    )}
-                  </div>
-                  
-                  <AuthComponent />
-                </div>
-              </div>
-            </div>
-          </header>
+          <Header 
+            currentPage={currentPage}
+            setCurrentPage={setCurrentPage}
+            isOnline={isOnline}
+          />
           
           <main class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-            {/* Hero Section */}
-            <div class="text-center mb-12">
-              <h2 class="text-4xl sm:text-5xl font-bold mb-4">
-                Умные уведомления о ценах{' '}
-                <span class="gradient-text">криптовалют</span>
-              </h2>
-              <p class="text-xl text-gray-400 max-w-3xl mx-auto mb-8">
-                Получайте мгновенные уведомления когда цены ваших любимых криптовалют 
-                достигают заданных значений. Настройте умные алерты и никогда не упускайте 
-                выгодные моменты для торговли.
-              </p>
-            </div>
-        
-        {/* Live Crypto Dashboard */}
-        <div class="mb-12">
-          <div class="text-center mb-6">
-            <h3 class="text-2xl font-bold mb-2">
-              💰 Живое табло цен
-            </h3>
-            <p class="text-gray-400 mb-2">
-              Актуальные цены криптовалют обновляются каждые 30 секунд
-            </p>
-            {lastUpdated() && (
-              <p class="text-sm text-gray-500">
-                Последнее обновление: {lastUpdated().toLocaleTimeString('ru-RU')}
-              </p>
-            )}
-          </div>
-          
-          <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
-            <For each={tokens}>
-              {(token) => {
-                const price = () => livePrices()[token.id];
-                const change24h = () => price()?.change24h || 0;
-                
-                return (
-                  <div class="bg-dark-card rounded-xl p-4 border border-gray-700 hover:border-gray-600 transition-all duration-300">
-                    <div class="flex items-center justify-between mb-2">
-                      <div class="flex items-center space-x-2">
-                        <div class={`w-8 h-8 rounded-full ${getTokenBadgeColor(token.id)} flex items-center justify-center text-white text-xs font-bold`}>
-                          {token.symbol.slice(0, 2)}
-                        </div>
-                        <div>
-                          <div class="text-sm font-medium">{token.symbol}</div>
-                          <div class="text-xs text-gray-400">{token.name}</div>
-                        </div>
-                      </div>
-                    </div>
-                    
-                    <div class="space-y-1">
-                      {pricesLoading() ? (
-                        <div class="text-lg font-bold text-gray-400">
-                          Загрузка...
-                        </div>
-                      ) : price() ? (
-                        <>
-                          <div class="text-lg font-bold">
-                            ${formatPrice(price().price)}
-                          </div>
-                          <div class={`text-sm font-medium flex items-center ${getPriceChangeColor(change24h())}`}>
-                            <span class="mr-1">{getPriceChangeIcon(change24h())}</span>
-                            {change24h() > 0 ? '+' : ''}{change24h().toFixed(2)}%
-                          </div>
-                        </>
-                      ) : (
-                        <div class="text-lg font-bold text-red-400">
-                          Ошибка
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                );
-              }}
-            </For>
-          </div>
-        </div>
-        
-        {/* Pricing Cards */}
-        <div class="grid grid-cols-1 md:grid-cols-3 gap-6 mb-12">
-          <For each={plans}>
-            {(plan) => (
-              <div class={`relative bg-dark-card rounded-2xl p-6 border transition-all duration-300 hover:scale-105 hover:shadow-2xl ${
-                plan.isPopular 
-                  ? 'border-accent-teal shadow-lg shadow-accent-teal/20' 
-                  : 'border-gray-700 hover:border-gray-600'
-              }`}>
-                {plan.isPopular && (
-                  <div class="absolute -top-3 left-1/2 transform -translate-x-1/2">
-                    <div class="bg-gradient-to-r from-accent-red to-accent-teal px-4 py-1 rounded-full text-sm font-bold text-white">
-                      Популярный
-                    </div>
-                  </div>
-                )}
-                
-                <div class="text-center mb-6">
-                  <h3 class="text-2xl font-bold mb-2">{plan.name}</h3>
-                  <div class="text-3xl font-bold gradient-text mb-1">
-                    {plan.price}
-                  </div>
-                  <div class="text-gray-400">/{plan.period}</div>
-                </div>
-                
-                <ul class="space-y-3 mb-6">
-                  <For each={plan.features}>
-                    {(feature) => (
-                      <li class="flex items-center space-x-3">
-                        <Check class="w-5 h-5 text-accent-teal flex-shrink-0" />
-                        <span class="text-gray-300">{feature}</span>
-                      </li>
-                    )}
-                  </For>
-                </ul>
-                
-                <button class={`w-full py-3 px-4 rounded-xl font-semibold transition-all duration-300 ${
-                  plan.isPopular
-                    ? 'bg-gradient-to-r from-accent-red to-accent-teal hover:shadow-lg'
-                    : 'bg-gray-700 hover:bg-gray-600'
-                }`}>
-                  {plan.name === currentPlan.name ? 'Текущий план' : 'Выбрать план'}
-                </button>
-              </div>
-            )}
-          </For>
-        </div>
-        
-        {/* Alert Form */}
-        <div class="bg-dark-card rounded-2xl p-6 mb-8">
-          <h3 class="text-2xl font-bold mb-6 flex items-center">
-            <Plus class="w-6 h-6 mr-2 text-accent-teal" />
-            Создать оповещение
-          </h3>
-          
-          <form onSubmit={handleAddAlert} class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
-            {/* Token Select */}
-            <div>
-              <label class="block text-sm font-medium text-gray-300 mb-2">Токен</label>
-              <select 
-                value={selectedToken()}
-                onInput={(e) => setSelectedToken(e.target.value)}
-                class="w-full bg-gray-700 border border-gray-600 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-accent-teal"
-              >
-                <For each={tokens}>
-                  {(token) => (
-                    <option value={token.id}>{token.name} ({token.symbol})</option>
-                  )}
-                </For>
-              </select>
-            </div>
-            
-            {/* Condition Select */}
-            <div>
-              <label class="block text-sm font-medium text-gray-300 mb-2">Условие</label>
-              <select 
-                value={condition()}
-                onInput={(e) => setCondition(e.target.value)}
-                class="w-full bg-gray-700 border border-gray-600 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-accent-teal"
-              >
-                <option value="less">Меньше чем</option>
-                <option value="greater">Больше чем</option>
-                <option value="equal">Равно</option>
-              </select>
-            </div>
-            
-            {/* Target Price Input */}
-            <div>
-              <label class="block text-sm font-medium text-gray-300 mb-2">Целевая цена</label>
-              <input 
-                type="number"
-                step="0.01"
-                placeholder="0.00"
-                value={targetPrice()}
-                onInput={(e) => setTargetPrice(e.target.value)}
-                class="w-full bg-gray-700 border border-gray-600 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-accent-teal"
+            {currentPage() === 'profile' ? (
+              <UserProfile />
+            ) : (
+              <Dashboard 
+                tokens={tokens}
+                livePrices={livePrices}
+                lastUpdated={lastUpdated}
+                alerts={alerts}
+                newAlert={newAlert}
+                setNewAlert={setNewAlert}
+                addAlert={addAlert}
+                removeAlert={removeAlert}
+                isOnline={isOnline}
               />
-            </div>
-            
-            {/* Notification Type */}
-            <div>
-              <label class="block text-sm font-medium text-gray-300 mb-2">Тип уведомления</label>
-              <select 
-                value={notificationType()}
-                onInput={(e) => setNotificationType(e.target.value)}
-                class="w-full bg-gray-700 border border-gray-600 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-accent-teal"
-              >
-                <option value="web">Web Push</option>
-                <option value="telegram">Telegram</option>
-                <option value="web_telegram">Web + Telegram</option>
-              </select>
-            </div>
-            
-            {/* Submit Button */}
-            <div class="flex items-end">
-              <button 
-                type="submit"
-                disabled={isSubmitting()}
-                class={`w-full py-2 px-4 rounded-lg font-semibold transition-all duration-300 flex items-center justify-center space-x-2 ${
-                  isSubmitting() 
-                    ? 'bg-gray-600 cursor-not-allowed' 
-                    : 'bg-gradient-to-r from-accent-red to-accent-teal hover:shadow-lg'
-                }`}
-              >
-                {isSubmitting() ? (
-                  <>
-                    <div class="animate-spin w-4 h-4 border-2 border-white border-t-transparent rounded-full"></div>
-                    <span>Добавление...</span>
-                  </>
-                ) : (
-                  <>
-                    <Plus class="w-4 h-4" />
-                    <span>Добавить</span>
-                  </>
-                )}
-              </button>
-            </div>
-          </form>
-        </div>
-        
-        {/* Active Alerts */}
-        <div class="bg-dark-card rounded-2xl p-6">
-          <div class="flex items-center justify-between mb-6">
-            <h3 class="text-2xl font-bold flex items-center">
-              <TrendingUp class="w-6 h-6 mr-2 text-accent-teal" />
-              Активные оповещения
-            </h3>
-            <div class="text-lg font-semibold text-accent-teal">
-              {alerts().length}/{currentPlan.maxAlerts === Infinity ? '∞' : currentPlan.maxAlerts} активных
-            </div>
-          </div>
-          
-          {isLoading() ? (
-            <div class="text-center py-8">
-              <div class="animate-spin w-8 h-8 border-2 border-accent-teal border-t-transparent rounded-full mx-auto"></div>
-              <div class="mt-2 text-gray-400">Загрузка оповещений...</div>
-            </div>
-          ) : alerts().length === 0 ? (
-            <div class="text-center py-8 text-gray-400">
-              <AlertTriangle class="w-12 h-12 mx-auto mb-4 opacity-50" />
-              <div class="text-lg">Нет активных оповещений</div>
-              <div class="text-sm">Создайте первое оповещение выше</div>
-            </div>
-          ) : (
-            <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-              <For each={alerts()}>
-                {(alert) => (
-                  <div class="bg-gray-800 rounded-xl p-4 transition-all duration-300 hover:bg-gray-750 border border-gray-700">
-                    <div class="flex items-center justify-between mb-3">
-                      <div class="flex items-center space-x-3">
-                        <div class={`token-badge ${getTokenBadgeColor(alert.tokenId)}`}>
-                          {alert.tokenSymbol}
-                        </div>
-                        <div>
-                          <div class="font-semibold">{alert.tokenName}</div>
-                          <div class="text-sm text-gray-400">
-                            Если цена {getConditionText(alert.condition, alert.targetPrice)}
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-                    
-                    <div class="mb-3">
-                      <div class="text-sm text-gray-400 mb-1">Текущая цена:</div>
-                      <div class="text-xl font-bold text-white">
-                        ${formatPrice(alert.currentPrice)}
-                      </div>
-                    </div>
-                    
-                    <div class="flex items-center justify-between">
-                      <div class="text-sm text-gray-400">
-                        {alert.notificationType === 'web' && 'Web Push'}
-                        {alert.notificationType === 'telegram' && 'Telegram'}
-                        {alert.notificationType === 'web_telegram' && 'Web + Telegram'}
-                      </div>
-                      
-                      <div class="flex space-x-2">
-                        <button class="p-2 text-gray-400 hover:text-accent-teal transition-colors">
-                          <Edit3 class="w-4 h-4" />
-                        </button>
-                        <button 
-                          onClick={() => handleDeleteAlert(alert.id)}
-                          class="p-2 text-gray-400 hover:text-accent-red transition-colors"
-                        >
-                          <Trash2 class="w-4 h-4" />
-                        </button>
-                      </div>
-                    </div>
-                  </div>
-                )}
-              </For>
-            </div>
-          )}
-        </div>
+            )}
           </main>
         </>
-      )}
-      
-      {/* Toast Notifications */}
-      {toast() && (
-        <div class="fixed top-4 right-4 z-50 animate-slide-up">
-          <div class={`rounded-lg p-4 shadow-lg max-w-sm ${
-            toast().type === 'error' 
-              ? 'bg-red-600 text-white'
-              : toast().type === 'success'
-              ? 'bg-green-600 text-white'
-              : 'bg-blue-600 text-white'
-          }`}>
-            <div class="flex items-center justify-between">
-              <div class="flex items-center space-x-2">
-                {toast().type === 'error' ? (
-                  <X class="w-5 h-5" />
-                ) : toast().type === 'success' ? (
-                  <Check class="w-5 h-5" />
-                ) : (
-                  <AlertTriangle class="w-5 h-5" />
-                )}
-                <span class="font-medium">{toast().message}</span>
-              </div>
-              <button 
-                onClick={() => setToast(null)}
-                class="ml-4 text-white/80 hover:text-white"
-              >
-                <X class="w-4 h-4" />
-              </button>
-            </div>
-          </div>
-        </div>
       )}
     </div>
   );
