@@ -14,6 +14,8 @@ import {
   WifiOff
 } from 'lucide-solid';
 import { realAPI } from './realAPI';
+import { AuthComponent, isAuthenticated, currentUser } from './SimpleAuth';
+import { simpleAPI } from './simpleAPI';
 
 /**
  * Главное приложение Token Alert Manager
@@ -74,16 +76,21 @@ function App() {
    * Загрузка оповещений при инициализации
    */
   createEffect(async () => {
-    try {
-      setIsLoading(true);
-      const fetchedAlerts = await realAPI.fetchAlerts();
-      setAlerts(fetchedAlerts);
-      setIsOnline(true);
-    } catch (error) {
-      console.error('Error fetching alerts:', error);
-      setIsOnline(false);
-      showToast('Ошибка загрузки данных. Проверьте подключение к интернету.', 'error');
-    } finally {
+    if (isAuthenticated()) {
+      try {
+        setIsLoading(true);
+        const fetchedAlerts = await simpleAPI.getAlerts();
+        setAlerts(fetchedAlerts);
+        setIsOnline(true);
+      } catch (error) {
+        console.error('Error fetching alerts:', error);
+        setIsOnline(false);
+        showToast('Ошибка загрузки данных. Проверьте подключение к интернету.', 'error');
+      } finally {
+        setIsLoading(false);
+      }
+    } else {
+      setAlerts([]);
       setIsLoading(false);
     }
   });
@@ -128,9 +135,11 @@ function App() {
    * Обновление цен каждые 2 минуты (реальный API имеет лимиты)
    */
   createEffect(() => {
+    if (!isAuthenticated()) return;
+    
     const interval = setInterval(async () => {
       try {
-        const updatedAlerts = await realAPI.updateAlertPrices();
+        const updatedAlerts = await simpleAPI.getAlerts();
         setAlerts([...updatedAlerts]);
         setIsOnline(true);
       } catch (error) {
@@ -174,16 +183,15 @@ function App() {
       const alertData = {
         tokenId: selectedToken(),
         tokenName: selectedTokenData.name,
-        tokenSymbol: selectedTokenData.symbol,
         condition: condition(),
-        targetPrice: parseFloat(targetPrice()),
-        notificationType: notificationType()
+        targetPrice: parseFloat(targetPrice())
       };
       
-      const response = await realAPI.createAlert(alertData);
+      const response = await simpleAPI.createAlert(alertData);
       
       if (response.success) {
-        setAlerts([...currentAlerts, response.alert]);
+        const updatedAlerts = await simpleAPI.getAlerts();
+        setAlerts(updatedAlerts);
         setTargetPrice('');
         showToast('Оповещение успешно добавлено!');
         setIsOnline(true);
@@ -202,10 +210,11 @@ function App() {
    */
   const handleDeleteAlert = async (alertId) => {
     try {
-      const response = await realAPI.deleteAlert(alertId);
+      const response = await simpleAPI.deleteAlert(alertId);
       
       if (response.success) {
-        setAlerts(alerts().filter(alert => alert.id !== alertId));
+        const updatedAlerts = await simpleAPI.getAlerts();
+        setAlerts(updatedAlerts);
         showToast('Оповещение удалено');
         setIsOnline(true);
       }
@@ -286,63 +295,63 @@ function App() {
   
   return (
     <div class="min-h-screen bg-dark-bg text-white">
-      {/* Header */}
-      <header class="bg-dark-card border-b border-gray-700">
-        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
-          <div class="flex items-center justify-between">
-            {/* Logo */}
-            <div class="flex items-center space-x-3">
-              <div class="w-10 h-10 bg-gradient-to-r from-accent-red to-accent-teal rounded-lg flex items-center justify-center">
-                <Bell class="w-6 h-6 text-white" />
+      {/* Если пользователь не авторизован, показываем только форму входа */}
+      {!isAuthenticated() ? (
+        <AuthComponent />
+      ) : (
+        <>
+          {/* Header - только для авторизованных пользователей */}
+          <header class="bg-dark-card border-b border-gray-700">
+            <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
+              <div class="flex items-center justify-between">
+                {/* Logo */}
+                <div class="flex items-center space-x-3">
+                  <div class="w-10 h-10 bg-gradient-to-r from-accent-red to-accent-teal rounded-lg flex items-center justify-center">
+                    <Bell class="w-6 h-6 text-white" />
+                  </div>
+                  <h1 class="text-2xl font-bold gradient-text">Token Alert</h1>
+                </div>
+                
+                {/* User Info */}
+                <div class="flex items-center space-x-4">
+                  {/* Connection Status */}
+                  <div class={`flex items-center space-x-2 px-3 py-1 rounded-full text-sm font-medium transition-all duration-300 ${
+                    isOnline() 
+                      ? 'bg-green-600/20 text-green-400 border border-green-600/30' 
+                      : 'bg-red-600/20 text-red-400 border border-red-600/30'
+                  }`}>
+                    {isOnline() ? (
+                      <>
+                        <Wifi class="w-4 h-4" />
+                        <span>Online</span>
+                      </>
+                    ) : (
+                      <>
+                        <WifiOff class="w-4 h-4" />
+                        <span>Offline</span>
+                      </>
+                    )}
+                  </div>
+                  
+                  <AuthComponent />
+                </div>
               </div>
-              <h1 class="text-2xl font-bold gradient-text">Token Alert</h1>
             </div>
-            
-            {/* User Info */}
-            <div class="flex items-center space-x-4">
-              {/* Connection Status */}
-              <div class={`flex items-center space-x-2 px-3 py-1 rounded-full text-sm font-medium transition-all duration-300 ${
-                isOnline() 
-                  ? 'bg-green-600/20 text-green-400 border border-green-600/30' 
-                  : 'bg-red-600/20 text-red-400 border border-red-600/30'
-              }`}>
-                {isOnline() ? (
-                  <>
-                    <Wifi class="w-4 h-4" />
-                    <span>Online</span>
-                  </>
-                ) : (
-                  <>
-                    <WifiOff class="w-4 h-4" />
-                    <span>Offline</span>
-                  </>
-                )}
-              </div>
-              
-              <div class="bg-gradient-to-r from-purple-600 to-blue-600 px-3 py-1 rounded-full text-sm font-medium">
-                Pro Plan
-              </div>
-              <div class="w-10 h-10 bg-gradient-to-r from-accent-teal to-blue-500 rounded-full flex items-center justify-center">
-                <span class="text-sm font-bold">JD</span>
-              </div>
+          </header>
+          
+          <main class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+            {/* Hero Section */}
+            <div class="text-center mb-12">
+              <h2 class="text-4xl sm:text-5xl font-bold mb-4">
+                Умные уведомления о ценах{' '}
+                <span class="gradient-text">криптовалют</span>
+              </h2>
+              <p class="text-xl text-gray-400 max-w-3xl mx-auto mb-8">
+                Получайте мгновенные уведомления когда цены ваших любимых криптовалют 
+                достигают заданных значений. Настройте умные алерты и никогда не упускайте 
+                выгодные моменты для торговли.
+              </p>
             </div>
-          </div>
-        </div>
-      </header>
-      
-      <main class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        {/* Hero Section */}
-        <div class="text-center mb-12">
-          <h2 class="text-4xl sm:text-5xl font-bold mb-4">
-            Умные уведомления о ценах{' '}
-            <span class="gradient-text">криптовалют</span>
-          </h2>
-          <p class="text-xl text-gray-400 max-w-3xl mx-auto mb-8">
-            Получайте мгновенные уведомления когда цены ваших любимых криптовалют 
-            достигают заданных значений. Настройте умные алерты и никогда не упускайте 
-            выгодные моменты для торговли.
-          </p>
-        </div>
         
         {/* Live Crypto Dashboard */}
         <div class="mb-12">
@@ -622,7 +631,9 @@ function App() {
             </div>
           )}
         </div>
-      </main>
+          </main>
+        </>
+      )}
       
       {/* Toast Notifications */}
       {toast() && (
