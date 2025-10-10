@@ -6,13 +6,21 @@ import { useAlertEngine, AlertEngineStatus } from '../services/alertEngineAPI.js
  * Заменяет старые AlertsSection и AdvancedAlertsSection
  */
 export function AlertEngineSection({ tokens, livePrices, user, isOnline }) {
-  // Проверяем доступность Alert Engine
-  const isProduction = !import.meta.env.DEV && 
-    window.location.hostname !== 'localhost' && 
-    window.location.hostname !== '127.0.0.1';
+  // Более простая и надежная логика определения окружения
+  const isLocalHost = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
+  const showAlertEngine = isLocalHost; // Показываем Alert Engine только на localhost
   
-  // Если production и Alert Engine недоступен, показываем заглушку
-  if (isProduction) {
+  // Отладочная информация
+  console.log('🔧 Alert Engine Environment:', {
+    hostname: window.location.hostname,
+    isLocalHost,
+    showAlertEngine,
+    mode: import.meta.env.MODE,
+    isDev: import.meta.env.DEV
+  });
+  
+  // Если не localhost, показываем заглушку
+  if (!showAlertEngine) {
     return (
       <div class="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
         <div class="text-center">

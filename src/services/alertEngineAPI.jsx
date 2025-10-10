@@ -1,28 +1,36 @@
 // API клиент для работы с Alert Engine C Backend
 class AlertEngineAPI {
   constructor() {
-    // Определяем окружение и настраиваем URL соответственно
-    const isDevelopment = import.meta.env.DEV;
+    // Простая и надежная логика - показываем Alert Engine только на localhost
     const isLocalhost = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
     
-    if (isDevelopment || isLocalhost) {
-      // Development/localhost - используем локальный сервер
+    if (isLocalhost) {
+      // Localhost - используем локальный сервер
       this.baseURL = import.meta.env.VITE_ALERT_ENGINE_HTTP_URL || 'http://localhost:8090';
       this.wsURL = import.meta.env.VITE_ALERT_ENGINE_WS_URL || 'ws://localhost:8091';
+      this.isAlertEngineEnabled = true;
     } else {
-      // Production - отключаем Alert Engine до развертывания продакшн сервера
+      // Не localhost - отключаем Alert Engine
       this.baseURL = null;
       this.wsURL = null;
+      this.isAlertEngineEnabled = false;
     }
     
     this.websocket = null;
     this.subscribers = new Set();
-    this.isProduction = !isDevelopment && !isLocalhost;
+    
+    console.log('🔧 Alert Engine API Config:', {
+      hostname: window.location.hostname,
+      isLocalhost,
+      baseURL: this.baseURL,
+      wsURL: this.wsURL,
+      enabled: this.isAlertEngineEnabled
+    });
   }
 
   // Проверка доступности Alert Engine
   isAlertEngineAvailable() {
-    return !this.isProduction && this.baseURL && this.wsURL;
+    return this.isAlertEngineEnabled && this.baseURL && this.wsURL;
   }
 
   // Подключение к WebSocket для real-time уведомлений
