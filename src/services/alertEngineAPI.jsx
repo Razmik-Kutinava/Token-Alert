@@ -1,16 +1,35 @@
 // API клиент для работы с Alert Engine C Backend
 class AlertEngineAPI {
-  constructor(baseURL = 'http://localhost:8090') {
-    this.baseURL = baseURL;
+  constructor() {
+    // Определяем окружение и настраиваем URL соответственно
+    const isDevelopment = import.meta.env.DEV;
+    const isLocalhost = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
+    
+    if (isDevelopment || isLocalhost) {
+      // Development/localhost - используем локальный сервер
+      this.baseURL = import.meta.env.VITE_ALERT_ENGINE_HTTP_URL || 'http://localhost:8090';
+      this.wsURL = import.meta.env.VITE_ALERT_ENGINE_WS_URL || 'ws://localhost:8091';
+    } else {
+      // Production - отключаем Alert Engine до развертывания продакшн сервера
+      this.baseURL = null;
+      this.wsURL = null;
+    }
+    
     this.websocket = null;
     this.subscribers = new Set();
+    this.isProduction = !isDevelopment && !isLocalhost;
+  }
+
+  // Проверка доступности Alert Engine
+  isAlertEngineAvailable() {
+    return !this.isProduction && this.baseURL && this.wsURL;
   }
 
   // Подключение к WebSocket для real-time уведомлений
   connectWebSocket() {
-    if (this.websocket) return;
+    if (!this.isAlertEngineAvailable() || this.websocket) return;
 
-    this.websocket = new WebSocket('ws://localhost:8091');
+    this.websocket = new WebSocket(this.wsURL);
     
     this.websocket.onopen = () => {
       console.log('Alert Engine WebSocket connected');
@@ -56,6 +75,11 @@ class AlertEngineAPI {
 
   // HTTP запросы к C API
   async request(endpoint, options = {}) {
+    if (!this.isAlertEngineAvailable()) {
+      console.warn('Alert Engine not available in production environment');
+      throw new Error('Alert Engine not available in production');
+    }
+    
     const url = `${this.baseURL}${endpoint}`;
     const config = {
       headers: {

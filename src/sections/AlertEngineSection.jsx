@@ -6,7 +6,42 @@ import { useAlertEngine, AlertEngineStatus } from '../services/alertEngineAPI.js
  * Заменяет старые AlertsSection и AdvancedAlertsSection
  */
 export function AlertEngineSection({ tokens, livePrices, user, isOnline }) {
-  // Состояние UI
+  // Проверяем доступность Alert Engine
+  const isProduction = !import.meta.env.DEV && 
+    window.location.hostname !== 'localhost' && 
+    window.location.hostname !== '127.0.0.1';
+  
+  // Если production и Alert Engine недоступен, показываем заглушку
+  if (isProduction) {
+    return (
+      <div class="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
+        <div class="text-center">
+          <div class="mb-4">
+            <div class="w-16 h-16 bg-blue-100 rounded-full flex items-center justify-center mx-auto mb-4">
+              <svg class="w-8 h-8 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+              </svg>
+            </div>
+          </div>
+          <h3 class="text-lg font-semibold text-gray-900 mb-2">Alert Engine</h3>
+          <p class="text-gray-600 mb-4">
+            Система алертов находится в стадии развертывания на продакшн сервере.
+          </p>
+          <div class="bg-blue-50 border border-blue-200 rounded-lg p-4 mb-4">
+            <p class="text-sm text-blue-800">
+              <strong>В разработке:</strong> C Alert Engine backend с поддержкой WebSocket и SQLite базы данных.
+            </p>
+          </div>
+          <div class="text-sm text-gray-500">
+            <p>🔧 Локальная разработка: порты 8090 (HTTP) и 8091 (WebSocket)</p>
+            <p>📊 Возможности: Real-time алерты, статистика, настройки</p>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // Состояние UI для development
   const [showCreateForm, setShowCreateForm] = createSignal(false);
   const [alertType, setAlertType] = createSignal('simple'); // 'simple' | 'advanced'
   const [currentTab, setCurrentTab] = createSignal('alerts'); // 'alerts' | 'stats' | 'settings'
