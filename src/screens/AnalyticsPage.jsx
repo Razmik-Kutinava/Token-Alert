@@ -112,6 +112,65 @@ export function AnalyticsPage({ user, tokens, livePrices }) {
     }
   };
 
+  // Загрузка данных для графиков сравнения
+  const loadChartData = async () => {
+    if (selectedTokens().length === 0) {
+      setChartData([]);
+      return;
+    }
+
+    console.log('📊 Загрузка графиков для:', selectedTokens());
+    
+    try {
+      const days = timeFrame() === '30дней' ? 30 : 
+                   timeFrame() === '3месяца' ? 90 :
+                   timeFrame() === '6месяцев' ? 180 :
+                   timeFrame() === '1год' ? 365 : 730;
+
+      const chartPromises = selectedTokens().map(async (tokenId) => {
+        try {
+          const data = await cryptoAPI.getChartData(tokenId, days);
+          const token = popularTokens.find(t => t.id === tokenId);
+          
+          return {
+            id: tokenId,
+            name: token?.name || tokenId,
+            symbol: token?.symbol || tokenId.toUpperCase(),
+            prices: data.prices || [],
+            color: getTokenColor(tokenId)
+          };
+        } catch (error) {
+          console.error(`❌ Ошибка графика для ${tokenId}:`, error);
+          return null;
+        }
+      });
+
+      const results = await Promise.all(chartPromises);
+      const validResults = results.filter(Boolean);
+      
+      console.log('✅ Графики загружены:', validResults.length);
+      setChartData(validResults);
+    } catch (error) {
+      console.error('❌ Ошибка загрузки графиков:', error);
+      setChartData([]);
+    }
+  };
+
+  // Цвета для токенов
+  const getTokenColor = (tokenId) => {
+    const colors = {
+      'bitcoin': '#f7931a',
+      'ethereum': '#627eea', 
+      'binancecoin': '#f3ba2f',
+      'cardano': '#0033ad',
+      'solana': '#9945ff',
+      'chainlink': '#375bd2',
+      'polkadot': '#e6007a',
+      'avalanche-2': '#e84142'
+    };
+    return colors[tokenId] || '#64748b';
+  };
+
   // Расчет прибыли
   const calculateProfit = async () => {
     if (!investAmount() || !buyDate() || !sellDate()) {
@@ -243,17 +302,28 @@ export function AnalyticsPage({ user, tokens, livePrices }) {
   createEffect(() => {
     if (selectedTokens().length > 0) {
       loadATHATLData();
+      loadChartData();
+    }
+  });
+
+  // Загрузка графиков при изменении временного периода
+  createEffect(() => {
+    timeFrame(); // следим за изменением timeFrame
+    if (selectedTokens().length > 0) {
+      loadChartData();
     }
   });
 
   onMount(() => {
     loadATHATLData();
+    loadChartData();
     
     // Автообновление каждые 30 секунд
     const interval = setInterval(() => {
       if (!loading()) {
         console.log('🔄 Автообновление данных...');
         loadATHATLData();
+        loadChartData();
       }
     }, 30000);
 
@@ -386,12 +456,110 @@ export function AnalyticsPage({ user, tokens, livePrices }) {
             </div>
           </div>
 
-          <div class="h-96 bg-gradient-to-br from-gray-900/50 to-black/50 rounded-xl border border-gray-600/50 flex items-center justify-center backdrop-blur-sm">
-            <div class="text-center text-gray-300">
-              <div class="text-8xl mb-4">📊</div>
-              <h4 class="text-xl font-bold mb-2">Интерактивный график сравнения</h4>
-              <p class="text-gray-400">Выберите криптовалюты для отображения динамики цен</p>
-            </div>
+          <div class="h-96 bg-gradient-to-br from-gray-900/50 to-black/50 rounded-xl border border-gray-600/50 p-4 backdrop-blur-sm">
+            <Show 
+              when={chartData().length > 0}
+              fallback={
+                <div class="h-full flex items-center justify-center text-center text-gray-300">
+                  <div>
+                    <div class="text-8xl mb-4">📊</div>
+                    <h4 class="text-xl font-bold mb-2">Интерактивный график сравнения</h4>
+                    <p class="text-gray-400">Выберите криптовалюты для отображения динамики цен</p>
+                  </div>
+                </div>
+              }
+            >
+              <div class="h-full">
+                <div class="flex justify-between items-center mb-4">
+                  <h4 class="text-white font-bold">Динамика цен ({timeFrame()})</h4>
+                  <div class="flex gap-2 flex-wrap">
+                    <For each={chartData()}>
+                      {(chart) => (
+                        <div class="flex items-center gap-2 bg-gray-800/50 px-3 py-1 rounded-lg">
+                          <div 
+                            class="w-3 h-3 rounded-full"
+                            style={{ "background-color": chart.color }}
+                          ></div>
+                          <span class="text-sm text-white font-medium">{chart.symbol}</span>
+                        </div>
+                      )}
+                    </For>
+                  </div>
+                </div>
+                
+                <div class="relative h-80">
+                  <svg class="w-full h-full" viewBox="0 0 800 300">
+                    {/* Сетка */}
+                    <defs>
+                      <pattern id="grid" width="50" height="30" patternUnits="userSpaceOnUse">
+                        <path d="M 50 0 L 0 0 0 30" fill="none" stroke="#374151" stroke-width="1" opacity="0.3"/>
+                      </pattern>
+                    </defs>
+                    <rect width="100%" height="100%" fill="url(#grid)" />
+                    
+                    {/* Линии графиков */}
+                    <For each={chartData()}>
+                      {(chart) => {
+                        if (!chart.prices || chart.prices.length === 0) return null;
+                        
+                        // Нормализуем данные для SVG
+                        const maxPrice = Math.max(...chartData().flatMap(c => c.prices?.map(p => p[1]) || []));
+                        const minPrice = Math.min(...chartData().flatMap(c => c.prices?.map(p => p[1]) || []));
+                        const priceRange = maxPrice - minPrice;
+                        
+                        const points = chart.prices.map((price, index) => {
+                          const x = (index / (chart.prices.length - 1)) * 750 + 25;
+                          const y = 275 - ((price[1] - minPrice) / priceRange) * 250;
+                          return `${x},${y}`;
+                        }).join(' ');
+                        
+                        return (
+                          <polyline
+                            points={points}
+                            fill="none"
+                            stroke={chart.color}
+                            stroke-width="2"
+                            opacity="0.8"
+                          />
+                        );
+                      }}
+                    </For>
+                  </svg>
+                  
+                  {/* Информация о ценах */}
+                  <div class="absolute top-2 right-2 bg-gray-900/80 rounded-lg p-3 backdrop-blur-sm">
+                    <For each={chartData()}>
+                      {(chart) => {
+                        const currentPrice = chart.prices?.[chart.prices.length - 1]?.[1];
+                        const firstPrice = chart.prices?.[0]?.[1];
+                        const change = currentPrice && firstPrice ? 
+                          ((currentPrice - firstPrice) / firstPrice * 100) : 0;
+                        
+                        return (
+                          <div class="flex items-center justify-between gap-4 mb-1">
+                            <div class="flex items-center gap-2">
+                              <div 
+                                class="w-2 h-2 rounded-full"
+                                style={{ "background-color": chart.color }}
+                              ></div>
+                              <span class="text-xs text-white">{chart.symbol}</span>
+                            </div>
+                            <div class="text-right">
+                              <div class="text-xs text-white">
+                                ${currentPrice?.toFixed(2) || '0.00'}
+                              </div>
+                              <div class={`text-xs ${change >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+                                {change >= 0 ? '+' : ''}{change.toFixed(1)}%
+                              </div>
+                            </div>
+                          </div>
+                        );
+                      }}
+                    </For>
+                  </div>
+                </div>
+              </div>
+            </Show>
           </div>
         </div>
       </PremiumGate>

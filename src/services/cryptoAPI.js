@@ -110,55 +110,79 @@ class CryptoAPI {
   // Получение списка монет с рыночными данными
   async getCoinsMarket(ids = 'bitcoin,ethereum,binancecoin,cardano,solana') {
     try {
-      const url = this.useProxy 
-        ? `https://api.allorigins.win/get?url=${encodeURIComponent(`${this.baseURL}/coins/markets?vs_currency=usd&ids=${ids}&order=market_cap_desc&per_page=10&page=1&sparkline=false&price_change_percentage=24h`)}`
-        : `${this.baseURL}/coins/markets?vs_currency=usd&ids=${ids}&order=market_cap_desc&per_page=10&page=1&sparkline=false&price_change_percentage=24h`;
-
-      const response = await fetch(url);
+      console.log('🔄 Запрос рыночных данных для:', ids);
       
-      if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
-      }
+      // Сначала пробуем прямой запрос
+      let url = `${this.baseURL}/coins/markets?vs_currency=usd&ids=${ids}&order=market_cap_desc&per_page=10&page=1&sparkline=false&price_change_percentage=24h`;
+      let response = await fetch(url);
+      
+      // Если CORS блокирует, используем прокси
+      if (!response.ok || response.status === 0) {
+        console.log('🔄 CORS блокирует, используем прокси...');
+        url = `https://api.allorigins.win/get?url=${encodeURIComponent(url)}`;
+        response = await fetch(url);
+        
+        if (!response.ok) {
+          throw new Error(`Прокси ошибка: ${response.status}`);
+        }
 
-      let data;
-      if (this.useProxy) {
-        const result = await response.json();
-        data = JSON.parse(result.contents);
+        const proxyResult = await response.json();
+        
+        // Проверяем структуру ответа от прокси
+        if (proxyResult.status && proxyResult.status.http_code !== 200) {
+          throw new Error(`API ошибка: ${proxyResult.status.http_code}`);
+        }
+        
+        const data = JSON.parse(proxyResult.contents);
+        console.log('✅ Данные через прокси получены:', data);
+        return Array.isArray(data) ? data : [];
       } else {
-        data = await response.json();
+        const data = await response.json();
+        console.log('✅ Прямые данные получены:', data);
+        return Array.isArray(data) ? data : [];
       }
-
-      return data;
     } catch (error) {
-      console.warn('API недоступен, используем fallback данные:', error);
-      return fallbackData.coins.filter(coin => ids.includes(coin.id));
+      console.warn('❌ API недоступен, используем fallback данные:', error);
+      return fallbackData.coins.filter(coin => ids.split(',').includes(coin.id));
     }
   }
 
   // Получение детальной информации о монете
   async getCoinDetails(coinId) {
     try {
-      const url = this.useProxy
-        ? `https://api.allorigins.win/get?url=${encodeURIComponent(`${this.baseURL}/coins/${coinId}?localization=false&tickers=false&market_data=true`)}`
-        : `${this.baseURL}/coins/${coinId}?localization=false&tickers=false&market_data=true`;
-
-      const response = await fetch(url);
+      console.log(`🔍 Запрос деталей для ${coinId}`);
       
-      if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
-      }
+      // Сначала пробуем прямой запрос
+      let url = `${this.baseURL}/coins/${coinId}?localization=false&tickers=false&market_data=true`;
+      let response = await fetch(url);
+      
+      // Если CORS блокирует, используем прокси
+      if (!response.ok || response.status === 0) {
+        console.log(`🔄 CORS блокирует для ${coinId}, используем прокси...`);
+        url = `https://api.allorigins.win/get?url=${encodeURIComponent(url)}`;
+        response = await fetch(url);
+        
+        if (!response.ok) {
+          throw new Error(`Прокси ошибка для ${coinId}: ${response.status}`);
+        }
 
-      let data;
-      if (this.useProxy) {
-        const result = await response.json();
-        data = JSON.parse(result.contents);
+        const proxyResult = await response.json();
+        
+        // Проверяем структуру ответа от прокси
+        if (proxyResult.status && proxyResult.status.http_code !== 200) {
+          throw new Error(`API ошибка для ${coinId}: ${proxyResult.status.http_code}`);
+        }
+        
+        const data = JSON.parse(proxyResult.contents);
+        console.log(`✅ Детали для ${coinId} через прокси получены`);
+        return data;
       } else {
-        data = await response.json();
+        const data = await response.json();
+        console.log(`✅ Прямые детали для ${coinId} получены`);
+        return data;
       }
-
-      return data;
     } catch (error) {
-      console.warn(`Детали для ${coinId} недоступны, используем fallback:`, error);
+      console.warn(`❌ Детали для ${coinId} недоступны, используем fallback:`, error);
       const fallbackCoin = fallbackData.coins.find(coin => coin.id === coinId);
       if (fallbackCoin) {
         return {
@@ -182,23 +206,39 @@ class CryptoAPI {
   // Получение исторической цены на определенную дату
   async getHistoricalPrice(coinId, date) {
     try {
-      // Пробуем использовать API
-      const formattedDate = date.split('-').reverse().join('-'); // DD-MM-YYYY
-      const url = this.useProxy
-        ? `https://api.allorigins.win/get?url=${encodeURIComponent(`${this.baseURL}/coins/${coinId}/history?date=${formattedDate}`)}`
-        : `${this.baseURL}/coins/${coinId}/history?date=${formattedDate}`;
-
-      const response = await fetch(url);
+      console.log(`📈 Запрос исторической цены ${coinId} на ${date}`);
       
-      if (response.ok) {
-        let data;
-        if (this.useProxy) {
-          const result = await response.json();
-          data = JSON.parse(result.contents);
-        } else {
-          data = await response.json();
+      // Форматируем дату для API (DD-MM-YYYY)
+      const formattedDate = date.split('-').reverse().join('-');
+      
+      // Сначала пробуем прямой запрос
+      let url = `${this.baseURL}/coins/${coinId}/history?date=${formattedDate}`;
+      let response = await fetch(url);
+      
+      // Если CORS блокирует, используем прокси
+      if (!response.ok || response.status === 0) {
+        console.log(`🔄 CORS блокирует историческую цену для ${coinId}, используем прокси...`);
+        url = `https://api.allorigins.win/get?url=${encodeURIComponent(url)}`;
+        response = await fetch(url);
+        
+        if (!response.ok) {
+          throw new Error(`Прокси ошибка для истории ${coinId}: ${response.status}`);
         }
 
+        const proxyResult = await response.json();
+        
+        // Проверяем структуру ответа от прокси
+        if (proxyResult.status && proxyResult.status.http_code !== 200) {
+          throw new Error(`API ошибка для истории ${coinId}: ${proxyResult.status.http_code}`);
+        }
+        
+        const data = JSON.parse(proxyResult.contents);
+        console.log(`✅ История ${coinId} через прокси получена`);
+        
+        return data.market_data?.current_price?.usd || 0;
+      } else {
+        const data = await response.json();
+        console.log(`✅ Прямая история ${coinId} получена`);
         return data.market_data?.current_price?.usd || 0;
       }
     } catch (error) {
@@ -244,25 +284,39 @@ class CryptoAPI {
   // Получение графических данных
   async getChartData(coinId, days = 30) {
     try {
-      const url = this.useProxy
-        ? `https://api.allorigins.win/get?url=${encodeURIComponent(`${this.baseURL}/coins/${coinId}/market_chart?vs_currency=usd&days=${days}`)}`
-        : `${this.baseURL}/coins/${coinId}/market_chart?vs_currency=usd&days=${days}`;
-
-      const response = await fetch(url);
+      console.log(`📊 Запрос графика для ${coinId} на ${days} дней`);
       
-      if (response.ok) {
-        let data;
-        if (this.useProxy) {
-          const result = await response.json();
-          data = JSON.parse(result.contents);
-        } else {
-          data = await response.json();
+      // Сначала пробуем прямой запрос
+      let url = `${this.baseURL}/coins/${coinId}/market_chart?vs_currency=usd&days=${days}`;
+      let response = await fetch(url);
+      
+      // Если CORS блокирует, используем прокси
+      if (!response.ok || response.status === 0) {
+        console.log(`🔄 CORS блокирует график для ${coinId}, используем прокси...`);
+        url = `https://api.allorigins.win/get?url=${encodeURIComponent(url)}`;
+        response = await fetch(url);
+        
+        if (!response.ok) {
+          throw new Error(`Прокси ошибка для графика ${coinId}: ${response.status}`);
         }
 
+        const proxyResult = await response.json();
+        
+        // Проверяем структуру ответа от прокси
+        if (proxyResult.status && proxyResult.status.http_code !== 200) {
+          throw new Error(`API ошибка для графика ${coinId}: ${proxyResult.status.http_code}`);
+        }
+        
+        const data = JSON.parse(proxyResult.contents);
+        console.log(`✅ График ${coinId} через прокси получен`);
+        return data;
+      } else {
+        const data = await response.json();
+        console.log(`✅ Прямой график ${coinId} получен`);
         return data;
       }
     } catch (error) {
-      console.warn(`График для ${coinId} недоступен:`, error);
+      console.warn(`❌ График для ${coinId} недоступен, генерируем fallback:`, error);
     }
 
     // Генерируем фейковые данные для графика
