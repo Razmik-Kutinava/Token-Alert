@@ -20,8 +20,10 @@ export function LivePricesSection({ tokens, livePrices, lastUpdated }) {
       <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
         <For each={tokens}>
           {(token) => {
-            const price = () => livePrices()[token.id];
-            const change24h = () => price()?.change24h || 0;
+            const pricesArray = () => Array.isArray(livePrices()) ? livePrices() : [];
+            const tokenData = () => pricesArray().find(t => t.id === token.id);
+            const price = () => tokenData()?.current_price;
+            const change24h = () => tokenData()?.price_change_percentage_24h || 0;
             
             return (
               <div class="bg-dark-card rounded-xl p-4 border border-gray-700 hover:border-gray-600 transition-all duration-300">
@@ -32,7 +34,7 @@ export function LivePricesSection({ tokens, livePrices, lastUpdated }) {
                 
                 <div class="mb-2">
                   <span class="text-2xl font-bold text-white">
-                    {price() ? `$${price().usd.toFixed(price().usd < 1 ? 6 : 2)}` : '...'}
+                    {price() ? `$${price() < 1 ? price().toFixed(6) : price().toFixed(2)}` : '...'}
                   </span>
                 </div>
                 

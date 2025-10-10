@@ -266,7 +266,7 @@ export const realAPI = {
       { id: 'solana', name: 'Solana', symbol: 'SOL' },
       { id: 'cardano', name: 'Cardano', symbol: 'ADA' },
       { id: 'polkadot', name: 'Polkadot', symbol: 'DOT' },
-      { id: 'avalanche', name: 'Avalanche', symbol: 'AVAX' },
+      { id: 'avalanche-2', name: 'Avalanche', symbol: 'AVAX' },
       { id: 'chainlink', name: 'Chainlink', symbol: 'LINK' },
       { id: 'polygon', name: 'Polygon', symbol: 'MATIC' }
     ];

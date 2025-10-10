@@ -12,6 +12,9 @@ const [currentUser, setCurrentUser] = createSignal(null);
 
 export { isAuthenticated, currentUser };
 
+// Экспортируем функцию для получения текущего пользователя
+export const getCurrentUser = () => currentUser();
+
 /**
  * Компонент авторизации
  */
@@ -33,10 +36,11 @@ export function AuthComponent() {
 
   // Предустановленные тестовые аккаунты
   const testAccounts = [
-    { email: 'admin@test.com', password: '123456', name: 'Администратор', role: 'admin' },
-    { email: 'user@test.com', password: 'password', name: 'Пользователь', role: 'user' },
-    { email: 'demo@test.com', password: 'demo123', name: 'Демо пользователь', role: 'demo' },
-    { email: 'trader@test.com', password: 'trader', name: 'Трейдер', role: 'trader' }
+    { email: 'admin@test.com', password: '123456', name: 'Администратор', role: 'admin', subscription: 'premium' },
+    { email: 'user@test.com', password: 'password', name: 'Пользователь', role: 'user', subscription: 'free' },
+    { email: 'demo@test.com', password: 'demo123', name: 'Демо пользователь', role: 'demo', subscription: 'free' },
+    { email: 'trader@test.com', password: 'trader', name: 'Трейдер', role: 'trader', subscription: 'premium' },
+    { email: 'premium@test.com', password: 'premium', name: 'Premium User', role: 'user', subscription: 'premium' }
   ];
 
   const handleLogin = () => {
@@ -61,7 +65,8 @@ export function AuthComponent() {
           id: Date.now(),
           email: account.email,
           name: account.name,
-          role: account.role
+          role: account.role,
+          subscription: account.subscription || 'free'
         };
         
         localStorage.setItem('demo_user', JSON.stringify(user));
@@ -84,7 +89,8 @@ export function AuthComponent() {
           id: Date.now(),
           email: email(),
           name: email().split('@')[0],
-          role: 'guest'
+          role: 'guest',
+          subscription: 'free'
         };
         
         localStorage.setItem('demo_user', JSON.stringify(user));
@@ -105,6 +111,21 @@ export function AuthComponent() {
     setIsAuthenticated(false);
     setShowMessage('Вы вышли из системы');
   };
+
+  // Функция для обновления подписки
+  const upgradeSubscription = () => {
+    const user = getCurrentUser();
+    if (user) {
+      const updatedUser = { ...user, subscription: 'premium' };
+      localStorage.setItem('demo_user', JSON.stringify(updatedUser));
+      setCurrentUser(updatedUser);
+      setShowMessage('✅ Подписка обновлена до Premium!');
+      setTimeout(() => setShowMessage(''), 3000);
+    }
+  };
+
+  // Экспортируем функцию для использования в других компонентах
+  window.upgradeSubscription = upgradeSubscription;
 
   // Если пользователь авторизован, показываем информацию о нём
   if (isAuthenticated()) {
@@ -147,32 +168,34 @@ export function AuthComponent() {
         
         <div class="bg-dark-card border border-gray-700 rounded-2xl p-8">
           <div class="space-y-6">
-            <div class="bg-blue-600/10 border border-blue-600/30 rounded-lg p-4 mb-6">
-              <h3 class="text-blue-400 font-medium mb-3">🔑 Тестовые аккаунты:</h3>
-              <div class="space-y-2 text-sm">
-                <div class="grid grid-cols-2 gap-2 text-gray-300">
-                  <div><strong>Email:</strong> admin@test.com</div>
-                  <div><strong>Пароль:</strong> 123456</div>
-                </div>
-                <div class="grid grid-cols-2 gap-2 text-gray-300">
-                  <div><strong>Email:</strong> user@test.com</div>
-                  <div><strong>Пароль:</strong> password</div>
-                </div>
-                <div class="grid grid-cols-2 gap-2 text-gray-300">
-                  <div><strong>Email:</strong> demo@test.com</div>
-                  <div><strong>Пароль:</strong> demo123</div>
-                </div>
-                <div class="grid grid-cols-2 gap-2 text-gray-300">
-                  <div><strong>Email:</strong> trader@test.com</div>
-                  <div><strong>Пароль:</strong> trader</div>
-                </div>
+          <div class="bg-blue-600/10 border border-blue-600/30 rounded-lg p-4 mb-6">
+            <h3 class="text-blue-400 font-medium mb-3">🔑 Тестовые аккаунты:</h3>
+            <div class="space-y-2 text-sm">
+              <div class="grid grid-cols-3 gap-2 text-gray-300">
+                <div><strong>admin@test.com</strong></div>
+                <div>123456</div>
+                <div class="text-purple-400">💎 Premium</div>
               </div>
-              <p class="text-xs text-gray-500 mt-3">
-                💡 Или используйте любой другой email и пароль (мин. 6 символов)
-              </p>
+              <div class="grid grid-cols-3 gap-2 text-gray-300">
+                <div><strong>user@test.com</strong></div>
+                <div>password</div>
+                <div class="text-gray-400">🆓 Free</div>
+              </div>
+              <div class="grid grid-cols-3 gap-2 text-gray-300">
+                <div><strong>premium@test.com</strong></div>
+                <div>premium</div>
+                <div class="text-purple-400">💎 Premium</div>
+              </div>
+              <div class="grid grid-cols-3 gap-2 text-gray-300">
+                <div><strong>trader@test.com</strong></div>
+                <div>trader</div>
+                <div class="text-purple-400">💎 Premium</div>
+              </div>
             </div>
-            
-            {/* Email Input */}
+            <p class="text-xs text-gray-500 mt-3">
+              💡 Или используйте любой другой email и пароль (мин. 6 символов) - будет создан Free аккаунт
+            </p>
+          </div>            {/* Email Input */}
             <div>
               <label class="block text-sm font-medium text-gray-300 mb-2">
                 Email

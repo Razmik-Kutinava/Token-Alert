@@ -1,7 +1,6 @@
 import { render } from 'solid-js/web';
 import './index.css';
-// import App from './App'; // Базовая версия
-import AppAdvanced from './AppAdvanced'; // Продвинутая версия с расширенными алертами
+import App from './App'; // Новая версия CryptoMultiTool
 
-// Используем продвинутую версию с полным функционалом
-render(() => <AppAdvanced />, document.getElementById('root'));
+// Используем новую версию с модульной архитектурой
+render(() => <App />, document.getElementById('root'));
