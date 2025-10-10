@@ -1,7 +1,6 @@
 import { createSignal, createEffect, onCleanup } from 'solid-js';
 import { realAPI } from './realAPI';
 import { AuthComponent, isAuthenticated, getCurrentUser } from './SimpleAuth';
-import { simpleAPI } from './simpleAPI';
 import { UserProfile } from './UserProfile';
 import { Toast } from './components/Toast';
 import { Header } from './components/Header';
@@ -13,7 +12,6 @@ import { AnalyticsPage } from './screens/AnalyticsPage';
  */
 function App() {
   // Сигналы для состояния приложения
-  const [alerts, setAlerts] = createSignal([]);
   const [isLoading, setIsLoading] = createSignal(true);
   const [toast, setToast] = createSignal(null);
   const [isOnline, setIsOnline] = createSignal(true);
@@ -33,13 +31,6 @@ function App() {
   
   // Получаем токены из API
   const tokens = realAPI.getSupportedTokens();
-
-  // Сигнал для нового алерта
-  const [newAlert, setNewAlert] = createSignal({
-    token: '',
-    type: 'above',
-    price: 0
-  });
 
   // Обработчики состояния сети
   createEffect(() => {
@@ -132,79 +123,17 @@ function App() {
     onCleanup(() => clearInterval(interval));
   });
 
-  // Загрузка алертов при аутентификации
+  // Загрузка данных при аутентификации  
   createEffect(() => {
     if (isAuthenticated()) {
-      loadAlerts();
-    } else {
-      setAlerts([]);
+      // Здесь можно добавить загрузку других данных пользователя
     }
   });
-
-  // Функция загрузки алертов
-  const loadAlerts = async () => {
-    try {
-      setIsLoading(true);
-      const userAlerts = await simpleAPI.getAlerts();
-      setAlerts(userAlerts);
-    } catch (error) {
-      console.error('Ошибка загрузки алертов:', error);
-      showToast('Ошибка загрузки алертов', 'error');
-    } finally {
-      setIsLoading(false);
-    }
-  };
 
   // Функция показа уведомлений
   const showToast = (message, type = 'info') => {
     setToast({ message, type });
     setTimeout(() => setToast(null), 3000);
-  };
-
-  // Функция добавления алерта
-  const addAlert = async () => {
-    if (!newAlert().token || !newAlert().price) {
-      showToast('Заполните все поля', 'error');
-      return;
-    }
-
-    try {
-      const alert = {
-        id: Date.now(),
-        token: newAlert().token,
-        type: newAlert().type,
-        price: newAlert().price,
-        createdAt: new Date().toISOString(),
-        isActive: true
-      };
-
-      await simpleAPI.addAlert(alert);
-      setAlerts(prev => [...prev, alert]);
-      
-      // Сброс формы
-      setNewAlert({
-        token: '',
-        type: 'above',
-        price: 0
-      });
-      
-      showToast('Алерт успешно создан!', 'success');
-    } catch (error) {
-      console.error('Ошибка создания алерта:', error);
-      showToast('Ошибка создания алерта', 'error');
-    }
-  };
-
-  // Функция удаления алерта
-  const removeAlert = async (alertId) => {
-    try {
-      await simpleAPI.removeAlert(alertId);
-      setAlerts(prev => prev.filter(alert => alert.id !== alertId));
-      showToast('Алерт удален', 'success');
-    } catch (error) {
-      console.error('Ошибка удаления алерта:', error);
-      showToast('Ошибка удаления алерта', 'error');
-    }
   };
 
   return (
@@ -239,11 +168,6 @@ function App() {
                 tokens={tokens}
                 livePrices={livePrices}
                 lastUpdated={lastUpdated}
-                alerts={alerts}
-                newAlert={newAlert}
-                setNewAlert={setNewAlert}
-                addAlert={addAlert}
-                removeAlert={removeAlert}
                 isOnline={isOnline}
                 user={getCurrentUser()}
               />
