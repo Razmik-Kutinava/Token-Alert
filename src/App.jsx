@@ -6,6 +6,7 @@ import { Toast } from './components/Toast';
 import { Header } from './components/Header';
 import { Dashboard } from './screens/Dashboard';
 import { AnalyticsPage } from './screens/AnalyticsPage';
+import PriceAPI from './services/priceAPI.jsx';
 
 /**
  * Главное приложение Token Alert Manager
@@ -55,58 +56,26 @@ function App() {
       }
       
       console.log('🔄 Загружаем цены...');
-      const tokenIds = tokens.map(t => t.id).join(',');
-      console.log('📋 Токены:', tokenIds);
+      const tokenIds = tokens.map(t => t.id);
+      console.log('📋 Токены:', tokenIds.join(','));
       
-      const response = await fetch(
-        `https://api.coingecko.com/api/v3/simple/price?ids=${tokenIds}&vs_currencies=usd&include_24hr_change=true`,
-        {
-          method: 'GET',
-          headers: {
-            'Accept': 'application/json',
-          },
-        }
-      );
-      
-      if (!response.ok) throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-      
-      const data = await response.json();
-      console.log('📊 Данные API:', data);
-      
-      // Преобразуем данные в удобный формат для AlertsSection
-      const formattedPrices = [];
-      Object.keys(data).forEach(tokenId => {
-        formattedPrices.push({
-          id: tokenId,
-          current_price: data[tokenId].usd,
-          price_change_percentage_24h: data[tokenId].usd_24h_change || 0
-        });
-      });
+      // Используем новый PriceAPI сервис
+      const formattedPrices = await PriceAPI.getPrices(tokenIds);
       
       console.log('✅ Форматированные цены:', formattedPrices);
       setLivePrices(formattedPrices);
       setLastUpdated(new Date());
       setPricesLoading(false);
     } catch (error) {
-      console.error('❌ Ошибка загрузки цен:', error);
-      console.log('🎭 Используем моковые данные из-за CORS...');
+      console.error('❌ Критическая ошибка загрузки цен:', error);
       setPricesLoading(false);
       
-      // Устанавливаем моковые данные при ошибке CORS
-      const mockPrices = [
-        { id: 'bitcoin', current_price: 63245.67, price_change_percentage_24h: 2.34 },
-        { id: 'ethereum', current_price: 3456.78, price_change_percentage_24h: -1.23 },
-        { id: 'solana', current_price: 145.23, price_change_percentage_24h: 5.67 },
-        { id: 'cardano', current_price: 0.45, price_change_percentage_24h: -0.89 },
-        { id: 'polkadot', current_price: 5.67, price_change_percentage_24h: 1.45 },
-        { id: 'avalanche-2', current_price: 28.90, price_change_percentage_24h: 3.21 },
-        { id: 'chainlink', current_price: 12.45, price_change_percentage_24h: -2.10 },
-        { id: 'polygon', current_price: 0.89, price_change_percentage_24h: 4.56 }
+      // В крайнем случае используем базовые моковые данные
+      const emergencyPrices = [
+        { id: 'bitcoin', current_price: 63000, price_change_percentage_24h: 0 },
+        { id: 'ethereum', current_price: 3400, price_change_percentage_24h: 0 }
       ];
-      
-      console.log('🎭 Моковые данные установлены:', mockPrices);
-      setLivePrices(mockPrices);
-      setLastUpdated(new Date());
+      setLivePrices(emergencyPrices);
     }
   };
 
