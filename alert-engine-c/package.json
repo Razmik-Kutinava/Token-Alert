@@ -1,0 +1,21 @@
+{
+  "name": "alert-engine-c",
+  "version": "1.0.0",
+  "description": "High-performance cryptocurrency alert engine written in C with real-time WebSocket notifications and REST API.",
+  "main": "mock-server.js",
+  "directories": {
+    "lib": "lib"
+  },
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "dependencies": {
+    "cors": "^2.8.5",
+    "express": "^5.1.0",
+    "ws": "^8.18.3"
+  }
+}

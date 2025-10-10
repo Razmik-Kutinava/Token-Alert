@@ -24,7 +24,8 @@ export function AdvancedAlertsSection({
    * Фильтрованные алерты
    */
   const filteredAlerts = () => {
-    let filtered = alerts();
+    const alertsArray = Array.isArray(alerts()) ? alerts() : [];
+    let filtered = alertsArray;
     
     if (filterCategory() !== 'all') {
       filtered = filtered.filter(a => a.category === filterCategory());
@@ -41,12 +42,12 @@ export function AdvancedAlertsSection({
    * Статистика алертов
    */
   const alertsStats = () => {
-    const all = alerts();
+    const alertsArray = Array.isArray(alerts()) ? alerts() : [];
     return {
-      total: all.length,
-      active: all.filter(a => a.isActive && !a.isPaused).length,
-      paused: all.filter(a => a.isPaused).length,
-      triggered: all.filter(a => a.triggeredCount > 0).length
+      total: alertsArray.length,
+      active: alertsArray.filter(a => a.isActive && !a.isPaused).length,
+      paused: alertsArray.filter(a => a.isPaused).length,
+      triggered: alertsArray.filter(a => a.triggeredCount > 0).length
     };
   };
 

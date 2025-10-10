@@ -14,6 +14,10 @@ export function AlertsSection({
   const [isAdvancedMode, setIsAdvancedMode] = createSignal(false);
   const [showAdvancedBuilder, setShowAdvancedBuilder] = createSignal(false);
 
+  // Helper функции
+  const getAlertsArray = () => Array.isArray(alerts()) ? alerts() : [];
+  const getAlertsLength = () => getAlertsArray().length;
+
   const getMaxAlerts = () => {
     return user?.subscription === 'premium' ? 20 : 5;
   };
@@ -47,7 +51,7 @@ export function AlertsSection({
   return (
     <div class="mb-12">
       <h3 class="text-2xl font-bold mb-6 flex items-center justify-center gap-4">
-        ⚡ Мои алерты ({alerts().length}/{getMaxAlerts()})
+        ⚡ Мои алерты ({getAlertsLength()}/{getMaxAlerts()})
         <Show when={user?.subscription === 'premium'}>
           <span class="bg-gradient-to-r from-purple-600 to-pink-600 text-white px-3 py-1 rounded-full text-sm font-medium">
             💎 Premium
@@ -137,20 +141,20 @@ export function AlertsSection({
             <div class="flex gap-3">
               <button 
                 onClick={addAlert}
-                disabled={alerts().length >= getMaxAlerts()}
+                disabled={getAlertsLength() >= getMaxAlerts()}
                 class="flex-1 bg-gradient-to-r from-blue-600 to-blue-700 text-white font-semibold py-3 px-6 rounded-lg hover:from-blue-700 hover:to-blue-800 transition-all duration-300 disabled:opacity-50 disabled:cursor-not-allowed"
               >
-                <Show when={alerts().length >= getMaxAlerts()}>
+                <Show when={getAlertsLength() >= getMaxAlerts()}>
                   Лимит алертов достигнут
                 </Show>
-                <Show when={alerts().length < getMaxAlerts()}>
+                <Show when={getAlertsLength() < getMaxAlerts()}>
                   Создать простой алерт
                 </Show>
               </button>
               
               <button
                 onClick={() => setShowAdvancedBuilder(true)}
-                disabled={alerts().length >= getMaxAlerts()}
+                disabled={getAlertsLength() >= getMaxAlerts()}
                 class="px-4 py-3 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                 title="Открыть продвинутый конструктор"
               >
@@ -202,7 +206,7 @@ export function AlertsSection({
       </Show>
       
       {/* Alerts List - Universal Display */}
-      <Show when={alerts().length === 0}>
+      <Show when={getAlertsLength() === 0}>
         <div class="text-center py-12">
           <div class="text-6xl mb-4">⚡</div>
           <p class="text-gray-400 text-lg mb-2">У вас пока нет алертов</p>
@@ -210,9 +214,9 @@ export function AlertsSection({
         </div>
       </Show>
 
-      <Show when={alerts().length > 0}>
+      <Show when={getAlertsLength() > 0}>
         <div class="space-y-4">
-          <For each={alerts()}>
+          <For each={getAlertsArray()}>
             {(alert) => {
               const token = getTokenByID(alert.token);
               const currentPrice = getTokenPrice(alert.token);
@@ -340,19 +344,19 @@ export function AlertsSection({
       </Show>
 
       {/* Alerts Statistics */}
-      <Show when={alerts().length > 0}>
+      <Show when={getAlertsLength() > 0}>
         <div class="mt-8 bg-gray-800 rounded-lg p-4 border border-gray-700">
           <h4 class="text-lg font-bold text-white mb-4 flex items-center gap-2">
             📊 Статистика алертов
           </h4>
           <div class="grid grid-cols-2 md:grid-cols-5 gap-4">
             <div class="text-center">
-              <div class="text-2xl font-bold text-blue-400">{alerts().length}</div>
+              <div class="text-2xl font-bold text-blue-400">{getAlertsLength()}</div>
               <div class="text-sm text-gray-400">Всего</div>
             </div>
             <div class="text-center">
               <div class="text-2xl font-bold text-green-400">
-                {alerts().filter(alert => {
+                {getAlertsArray().filter(alert => {
                   const currentPrice = getTokenPrice(alert.token);
                   if (!currentPrice) return false;
                   return alert.type === 'above' 
@@ -364,19 +368,19 @@ export function AlertsSection({
             </div>
             <div class="text-center">
               <div class="text-2xl font-bold text-blue-400">
-                {alerts().filter(alert => !isAdvancedAlert(alert)).length}
+                {getAlertsArray().filter(alert => !isAdvancedAlert(alert)).length}
               </div>
               <div class="text-sm text-gray-400">Простые</div>
             </div>
             <div class="text-center">
               <div class="text-2xl font-bold text-purple-400">
-                {alerts().filter(alert => isAdvancedAlert(alert)).length}
+                {getAlertsArray().filter(alert => isAdvancedAlert(alert)).length}
               </div>
               <div class="text-sm text-gray-400">Продвинутые</div>
             </div>
             <div class="text-center">
               <div class="text-2xl font-bold text-yellow-400">
-                {getMaxAlerts() - alerts().length}
+                {getMaxAlerts() - getAlertsLength()}
               </div>
               <div class="text-sm text-gray-400">Доступно</div>
             </div>

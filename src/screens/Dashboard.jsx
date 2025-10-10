@@ -9,6 +9,7 @@ import { EducationPortal } from '../components/EducationPortal';
 import { NewsAndBenefits } from '../components/NewsAndBenefits';
 import { PricingBanner } from '../components/PricingBanner';
 import { SiteFooter } from '../components/SiteFooter';
+import { AlertEngineSection } from '../sections/AlertEngineSection';
 
 export function Dashboard({ 
   tokens, 
@@ -29,6 +30,14 @@ export function Dashboard({
         tokens={tokens}
         livePrices={livePrices}
         lastUpdated={lastUpdated}
+      />
+      
+      {/* Единый Alert Engine - C Backend */}
+      <AlertEngineSection 
+        tokens={tokens}
+        livePrices={livePrices}
+        user={user}
+        isOnline={isOnline}
       />
       
       {/* Образовательный портал */}
