@@ -1,25 +1,248 @@
-import { createSignal, For, Show } from 'solid-js';
-import { BarChart3, TrendingUp, Activity, DollarSign, Target, Download } from 'lucide-solid';
+import { createSignal, createEffect, For, Show, onMount } from 'solid-js';
 
 export function AnalyticsPage({ user, tokens, livePrices }) {
   const isPremium = () => user?.subscription === 'premium';
   
-  const [selectedTimeRange, setSelectedTimeRange] = createSignal('7d');
+  // Состояния для компонентов
+  const [selectedTokens, setSelectedTokens] = createSignal(['bitcoin', 'ethereum', 'cardano', 'solana', 'binancecoin']);
+  const [timeFrame, setTimeFrame] = createSignal('30дней');
+  const [athAtlData, setAthAtlData] = createSignal([]);
+  const [loading, setLoading] = createSignal(false);
+  const [chartData, setChartData] = createSignal([]);
   
+  // Калькулятор состояния
+  const [calcToken, setCalcToken] = createSignal('bitcoin');
+  const [investAmount, setInvestAmount] = createSignal('1000');
+  const [buyDate, setBuyDate] = createSignal('2024-01-01');
+  const [sellDate, setSellDate] = createSignal('2024-10-10');
+  const [fees, setFees] = createSignal('0.1');
+  const [reinvest, setReinvest] = createSignal(false);
+  const [calcResult, setCalcResult] = createSignal(null);
+  const [calcLoading, setCalcLoading] = createSignal(false);
+  
+  // Экспорт состояния
+  const [exportFormat, setExportFormat] = createSignal('CSV');
+  const [dataType, setDataType] = createSignal('prices');
+
+  const popularTokens = [
+    { id: 'bitcoin', symbol: 'BTC', name: 'Bitcoin' },
+    { id: 'ethereum', symbol: 'ETH', name: 'Ethereum' },
+    { id: 'binancecoin', symbol: 'BNB', name: 'BNB' },
+    { id: 'cardano', symbol: 'ADA', name: 'Cardano' },
+    { id: 'solana', symbol: 'SOL', name: 'Solana' },
+    { id: 'chainlink', symbol: 'LINK', name: 'Chainlink' },
+    { id: 'polkadot', symbol: 'DOT', name: 'Polkadot' },
+    { id: 'avalanche-2', symbol: 'AVAX', name: 'Avalanche' }
+  ];
+
+  const timeFrames = ['30дней', '3месяца', '6месяцев', '1год', '2года'];
+
+  // Загрузка ATH/ATL данных
+  const loadATHATLData = async () => {
+    setLoading(true);
+    try {
+      const promises = selectedTokens().slice(0, 5).map(async (tokenId) => {
+        try {
+          // Получаем основные данные
+          const marketResponse = await fetch(
+            `https://api.coingecko.com/api/v3/coins/markets?vs_currency=usd&ids=${tokenId}&order=market_cap_desc&per_page=1&page=1&sparkline=false`
+          );
+          const marketData = await marketResponse.json();
+          
+          if (!marketData[0]) return null;
+          
+          // Получаем детальные данные для ATH/ATL
+          const detailResponse = await fetch(
+            `https://api.coingecko.com/api/v3/coins/${tokenId}?localization=false&tickers=false&market_data=true`
+          );
+          const detail = await detailResponse.json();
+          
+          const coin = marketData[0];
+          const market = detail.market_data;
+          
+          return {
+            id: tokenId,
+            symbol: coin.symbol.toUpperCase(),
+            name: coin.name,
+            image: coin.image,
+            current: coin.current_price,
+            ath: market.ath.usd,
+            atl: market.atl.usd,
+            athPercent: ((coin.current_price - market.ath.usd) / market.ath.usd * 100),
+            atlPercent: ((coin.current_price - market.atl.usd) / market.atl.usd * 100),
+            athDate: new Date(market.ath_date.usd).toLocaleDateString('ru-RU'),
+            atlDate: new Date(market.atl_date.usd).toLocaleDateString('ru-RU'),
+            change24h: coin.price_change_percentage_24h
+          };
+        } catch (error) {
+          console.error(`Ошибка загрузки ${tokenId}:`, error);
+          return null;
+        }
+      });
+      
+      const results = await Promise.all(promises);
+      setAthAtlData(results.filter(Boolean));
+    } catch (error) {
+      console.error('Ошибка загрузки данных:', error);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Расчет прибыли
+  const calculateProfit = async () => {
+    if (!investAmount() || !buyDate() || !sellDate()) return;
+    
+    setCalcLoading(true);
+    try {
+      // Получаем историческую цену на дату покупки
+      const buyDateFormatted = buyDate().split('-').reverse().join('-');
+      const sellDateFormatted = sellDate().split('-').reverse().join('-');
+      
+      const [buyResponse, sellResponse] = await Promise.all([
+        fetch(`https://api.coingecko.com/api/v3/coins/${calcToken()}/history?date=${buyDateFormatted}`),
+        fetch(`https://api.coingecko.com/api/v3/coins/${calcToken()}/history?date=${sellDateFormatted}`)
+      ]);
+      
+      const buyData = await buyResponse.json();
+      const sellData = await sellResponse.json();
+      
+      const buyPrice = buyData.market_data?.current_price?.usd || 0;
+      const sellPrice = sellData.market_data?.current_price?.usd || 0;
+      
+      if (!buyPrice || !sellPrice) {
+        setCalcResult({ error: 'Не удалось получить исторические цены' });
+        return;
+      }
+      
+      const investment = parseFloat(investAmount());
+      const feePercent = parseFloat(fees()) / 100;
+      
+      // Расчеты
+      const tokensAmount = investment / buyPrice;
+      const sellValue = tokensAmount * sellPrice;
+      const totalFees = investment * feePercent + sellValue * feePercent;
+      const profit = sellValue - investment - totalFees;
+      const profitPercent = (profit / investment) * 100;
+      
+      setCalcResult({
+        buyPrice,
+        sellPrice,
+        tokensAmount,
+        investment,
+        sellValue,
+        totalFees,
+        profit,
+        profitPercent,
+        duration: Math.ceil((new Date(sellDate()) - new Date(buyDate())) / (1000 * 60 * 60 * 24))
+      });
+    } catch (error) {
+      console.error('Ошибка расчета:', error);
+      setCalcResult({ error: 'Ошибка расчета прибыли' });
+    } finally {
+      setCalcLoading(false);
+    }
+  };
+
+  // Экспорт данных
+  const exportData = async (format) => {
+    const data = athAtlData();
+    if (!data.length) return;
+
+    let content, filename, mimeType;
+
+    if (format === 'CSV') {
+      const csvHeader = 'Токен,Название,Текущая цена,ATH,ATL,% от ATH,% от ATL,Дата ATH,Дата ATL,Изменение 24ч\n';
+      const csvContent = data.map(row => 
+        `${row.symbol},${row.name},${row.current},${row.ath},${row.atl},${row.athPercent.toFixed(2)}%,${row.atlPercent.toFixed(2)}%,${row.athDate},${row.atlDate},${row.change24h?.toFixed(2)}%`
+      ).join('\n');
+      
+      content = csvHeader + csvContent;
+      filename = `crypto-analytics-${Date.now()}.csv`;
+      mimeType = 'text/csv;charset=utf-8;';
+    } else if (format === 'JSON') {
+      content = JSON.stringify(data, null, 2);
+      filename = `crypto-analytics-${Date.now()}.json`;
+      mimeType = 'application/json;charset=utf-8;';
+    } else if (format === 'Excel' && isPremium()) {
+      try {
+        const XLSX = await import('xlsx');
+        const ws = XLSX.utils.json_to_sheet(data.map(row => ({
+          'Токен': row.symbol,
+          'Название': row.name,
+          'Текущая цена ($)': row.current,
+          'ATH ($)': row.ath,
+          'ATL ($)': row.atl,
+          '% от ATH': row.athPercent.toFixed(2) + '%',
+          '% от ATL': row.atlPercent.toFixed(2) + '%',
+          'Дата ATH': row.athDate,
+          'Дата ATL': row.atlDate,
+          'Изменение 24ч (%)': row.change24h?.toFixed(2) + '%'
+        })));
+        
+        const wb = XLSX.utils.book_new();
+        XLSX.utils.book_append_sheet(wb, ws, 'Crypto Analytics');
+        
+        filename = `crypto-analytics-${Date.now()}.xlsx`;
+        XLSX.writeFile(wb, filename);
+        return;
+      } catch (error) {
+        console.error('Ошибка экспорта Excel:', error);
+        return;
+      }
+    }
+
+    if (content) {
+      const blob = new Blob([content], { type: mimeType });
+      const url = window.URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = filename;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      window.URL.revokeObjectURL(url);
+    }
+  };
+
+  // Добавление/удаление токенов
+  const toggleToken = (tokenId) => {
+    const current = selectedTokens();
+    if (current.includes(tokenId)) {
+      setSelectedTokens(current.filter(id => id !== tokenId));
+    } else if (current.length < 10) {
+      setSelectedTokens([...current, tokenId]);
+    }
+  };
+
+  // Автозагрузка данных
+  createEffect(() => {
+    if (selectedTokens().length > 0) {
+      loadATHATLData();
+    }
+  });
+
+  onMount(() => {
+    loadATHATLData();
+  });
+
   const PremiumGate = ({ children, feature }) => (
     <Show 
       when={isPremium()} 
       fallback={
-        <div class="bg-gray-800/50 rounded-xl p-8 border border-orange-500/30 text-center">
-          <div class="text-6xl mb-4">🔒</div>
-          <h3 class="text-xl font-bold text-white mb-2">{feature}</h3>
-          <p class="text-gray-400 mb-4">Доступно только в Premium подписке</p>
-          <button 
-            onClick={() => window.upgradeSubscription && window.upgradeSubscription()}
-            class="bg-gradient-to-r from-purple-600 to-blue-600 text-white px-6 py-2 rounded-lg hover:opacity-90 transition-opacity"
-          >
-            Обновить до Premium
-          </button>
+        <div class="bg-gradient-to-br from-gray-800/80 to-gray-900/80 backdrop-blur-sm rounded-2xl p-8 border border-orange-500/30 text-center relative overflow-hidden">
+          <div class="absolute inset-0 bg-gradient-to-br from-orange-500/10 to-red-500/10"></div>
+          <div class="relative z-10">
+            <div class="text-6xl mb-4">🔒</div>
+            <h3 class="text-xl font-bold text-white mb-2">{feature}</h3>
+            <p class="text-gray-400 mb-4">Доступно только в Premium подписке</p>
+            <button 
+              onClick={() => window.upgradeSubscription && window.upgradeSubscription()}
+              class="bg-gradient-to-r from-orange-500 to-red-500 text-white px-6 py-3 rounded-xl hover:from-orange-600 hover:to-red-600 transition-all duration-300 font-semibold"
+            >
+              🚀 Обновить до Premium
+            </button>
+          </div>
         </div>
       }
     >
@@ -28,99 +251,399 @@ export function AnalyticsPage({ user, tokens, livePrices }) {
   );
 
   return (
-    <div class="min-h-screen">
-      <div class="mb-8">
-        <h1 class="text-3xl font-bold text-white flex items-center gap-3 mb-2">
-          <BarChart3 class="w-8 h-8 text-blue-400" />
-          📊 Продвинутая аналитика
-        </h1>
-        <p class="text-gray-400">
-          Профессиональные инструменты для анализа рынка криптовалют
-        </p>
+    <div class="min-h-screen bg-gradient-to-br from-gray-900 via-blue-900 to-purple-900">
+      {/* Супер крутой заголовок */}
+      <div class="relative mb-8 overflow-hidden">
+        <div class="absolute inset-0 bg-gradient-to-r from-indigo-500 via-purple-500 to-pink-500 opacity-90"></div>
+        <div class="absolute inset-0 bg-gradient-to-br from-transparent via-white/10 to-transparent"></div>
+        <div class="relative p-8 text-white">
+          <div class="flex items-center justify-between">
+            <div class="flex items-center gap-6">
+              <div class="text-6xl animate-pulse">📊</div>
+              <div>
+                <h1 class="text-4xl font-black mb-2 bg-gradient-to-r from-white to-blue-200 bg-clip-text text-transparent">
+                  Исторические данные и анализ
+                </h1>
+                <p class="text-xl text-white/90 font-medium">
+                  Глубокий анализ рынка с данными за 2+ года
+                </p>
+              </div>
+            </div>
+            <div class="bg-gradient-to-r from-pink-500 to-orange-500 px-6 py-3 rounded-full shadow-lg">
+              <span class="text-white font-bold flex items-center gap-2">
+                <div class="w-3 h-3 bg-white rounded-full animate-pulse"></div>
+                Premium
+              </span>
+            </div>
+          </div>
+        </div>
       </div>
 
-      <PremiumGate feature="Интерактивные графики">
-        <div class="bg-gray-800 rounded-xl p-6 border border-gray-700 mb-8">
-          <h3 class="text-xl font-bold text-white mb-6">📈 Сравнительный анализ цен</h3>
+      {/* Кнопки периодов */}
+      <div class="mb-8">
+        <label class="block text-white font-bold text-lg mb-4">⏱️ Временной период:</label>
+        <div class="flex flex-wrap gap-3">
+          <For each={timeFrames}>
+            {(period) => (
+              <button
+                onClick={() => setTimeFrame(period)}
+                class={`px-6 py-3 rounded-xl font-semibold transition-all duration-300 ${
+                  timeFrame() === period
+                    ? 'bg-gradient-to-r from-blue-500 to-purple-500 text-white shadow-lg scale-105'
+                    : 'bg-gray-700/50 text-gray-300 hover:bg-gray-600/50 hover:scale-105'
+                }`}
+              >
+                {period}
+              </button>
+            )}
+          </For>
+        </div>
+      </div>
+
+      {/* Сравнение графиков */}
+      <PremiumGate feature="Сравнение графиков">
+        <div class="bg-gradient-to-br from-gray-800/90 to-gray-900/90 backdrop-blur-sm rounded-2xl p-6 border border-blue-500/30 mb-8 shadow-xl">
+          <h3 class="text-2xl font-bold text-white mb-4 flex items-center gap-3">
+            📈 Сравнение графиков цен
+          </h3>
+          <p class="text-gray-300 mb-6">Сравните до 10 криптовалют на одном графике</p>
           
-          <div class="h-96 bg-gray-900 rounded-lg flex items-center justify-center border border-gray-700">
-            <div class="text-center">
-              <div class="text-4xl mb-4">📊</div>
-              <p class="text-gray-400">Интерактивный график будет здесь</p>
-              <p class="text-gray-500 text-sm mt-2">
-                Графики цен в реальном времени
-              </p>
+          <div class="mb-6">
+            <label class="block text-white font-semibold mb-3">
+              💰 Выбранные токены ({selectedTokens().length}/10):
+            </label>
+            <div class="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-8 gap-3 mb-4">
+              <For each={popularTokens}>
+                {(token) => (
+                  <button
+                    onClick={() => toggleToken(token.id)}
+                    class={`p-3 rounded-xl font-semibold transition-all duration-300 ${
+                      selectedTokens().includes(token.id)
+                        ? 'bg-gradient-to-r from-green-500 to-blue-500 text-white scale-105 shadow-lg'
+                        : 'bg-gray-700/50 text-gray-300 hover:bg-gray-600/50 hover:scale-105'
+                    }`}
+                  >
+                    {token.symbol}
+                  </button>
+                )}
+              </For>
+            </div>
+          </div>
+
+          <div class="h-96 bg-gradient-to-br from-gray-900/50 to-black/50 rounded-xl border border-gray-600/50 flex items-center justify-center backdrop-blur-sm">
+            <div class="text-center text-gray-300">
+              <div class="text-8xl mb-4">📊</div>
+              <h4 class="text-xl font-bold mb-2">Интерактивный график сравнения</h4>
+              <p class="text-gray-400">Выберите криптовалюты для отображения динамики цен</p>
             </div>
           </div>
         </div>
       </PremiumGate>
 
-      <div class="grid grid-cols-1 lg:grid-cols-2 gap-8 mb-8">
-        <PremiumGate feature="Рейтинг активов">
-          <div class="bg-gray-800 rounded-xl p-6 border border-gray-700">
-            <h3 class="text-xl font-bold text-white mb-6">🏆 Топ исполнители</h3>
-            <div class="space-y-4">
-              <div class="flex items-center justify-between p-3 bg-gray-900 rounded-lg">
-                <div class="flex items-center gap-3">
-                  <div class="w-6 h-6 bg-blue-500 rounded-full flex items-center justify-center text-white text-xs font-bold">1</div>
-                  <div>
-                    <div class="font-bold text-white">SOL</div>
-                    <div class="text-gray-400 text-sm">Solana</div>
-                  </div>
+      <div class="grid grid-cols-1 xl:grid-cols-2 gap-8 mb-8">
+        {/* ATH/ATL Трекер */}
+        <PremiumGate feature="ATH/ATL трекер">
+          <div class="bg-gradient-to-br from-gray-800/90 to-gray-900/90 backdrop-blur-sm rounded-2xl p-6 border border-green-500/30 shadow-xl">
+            <h3 class="text-2xl font-bold text-white mb-4 flex items-center gap-3">
+              🏆 ATH/ATL трекер
+            </h3>
+            
+            <Show 
+              when={!loading() && athAtlData().length > 0}
+              fallback={
+                <div class="text-center py-12">
+                  <Show when={loading()}>
+                    <div class="text-6xl mb-4">⏳</div>
+                    <div class="text-xl text-gray-300 font-semibold">Загрузка данных...</div>
+                  </Show>
+                  <Show when={!loading() && athAtlData().length === 0}>
+                    <div class="text-6xl mb-4">📊</div>
+                    <div class="text-xl text-gray-300">Нет данных для отображения</div>
+                  </Show>
                 </div>
-                <div class="text-right">
-                  <div class="text-green-400 font-bold">+45.8%</div>
-                  <div class="text-gray-400 text-sm">$2.1B</div>
-                </div>
+              }
+            >
+              <div class="overflow-x-auto">
+                <table class="w-full text-sm">
+                  <thead>
+                    <tr class="border-b border-gray-600">
+                      <th class="text-left py-3 text-gray-300 font-bold">Токен</th>
+                      <th class="text-right py-3 text-gray-300 font-bold">Текущая</th>
+                      <th class="text-right py-3 text-gray-300 font-bold">ATH</th>
+                      <th class="text-right py-3 text-gray-300 font-bold">ATL</th>
+                      <th class="text-right py-3 text-gray-300 font-bold">% от ATH</th>
+                      <th class="text-right py-3 text-gray-300 font-bold">% от ATL</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <For each={athAtlData()}>
+                      {(token) => (
+                        <tr class="border-b border-gray-700/50 hover:bg-gray-700/30 transition-colors">
+                          <td class="py-4">
+                            <div class="flex items-center gap-3">
+                              <img src={token.image} alt={token.symbol} class="w-8 h-8 rounded-full" />
+                              <div>
+                                <div class="font-bold text-white">{token.symbol}</div>
+                                <div class="text-xs text-gray-400">{token.name}</div>
+                              </div>
+                            </div>
+                          </td>
+                          <td class="text-right text-white font-semibold">
+                            ${token.current?.toLocaleString()}
+                          </td>
+                          <td class="text-right text-green-400 font-semibold">
+                            ${token.ath?.toLocaleString()}
+                          </td>
+                          <td class="text-right text-red-400 font-semibold">
+                            ${token.atl?.toFixed(6)}
+                          </td>
+                          <td class={`text-right font-bold ${token.athPercent >= -10 ? 'text-green-400' : token.athPercent >= -50 ? 'text-yellow-400' : 'text-red-400'}`}>
+                            {token.athPercent?.toFixed(1)}%
+                          </td>
+                          <td class={`text-right font-bold ${token.atlPercent >= 1000 ? 'text-green-400' : token.atlPercent >= 100 ? 'text-yellow-400' : 'text-red-400'}`}>
+                            +{token.atlPercent?.toFixed(0)}%
+                          </td>
+                        </tr>
+                      )}
+                    </For>
+                  </tbody>
+                </table>
               </div>
-            </div>
+            </Show>
+            
+            <button 
+              onClick={loadATHATLData}
+              disabled={loading()}
+              class="mt-4 w-full bg-gradient-to-r from-green-500 to-blue-500 text-white py-3 rounded-xl hover:from-green-600 hover:to-blue-600 transition-all duration-300 font-semibold disabled:opacity-50"
+            >
+              {loading() ? '⏳ Обновление...' : '🔄 Обновить данные'}
+            </button>
           </div>
         </PremiumGate>
 
-        <PremiumGate feature="Экспорт данных">
-          <div class="bg-gray-800 rounded-xl p-6 border border-gray-700">
-            <h3 class="text-xl font-bold text-white mb-6 flex items-center gap-2">
-              <Download class="w-6 h-6" />
-              📋 Экспорт данных
+        {/* Калькулятор прибыли */}
+        <PremiumGate feature="Калькулятор прибыли">
+          <div class="bg-gradient-to-br from-gray-800/90 to-gray-900/90 backdrop-blur-sm rounded-2xl p-6 border border-yellow-500/30 shadow-xl">
+            <h3 class="text-2xl font-bold text-white mb-4 flex items-center gap-3">
+              💰 Калькулятор прибыли
             </h3>
             
-            <div class="bg-gray-900 rounded-lg p-4">
-              <h4 class="font-medium text-white mb-2">Исторические данные</h4>
-              <p class="text-gray-400 text-sm mb-4">
-                Экспортируйте данные о ценах за любой период
-              </p>
-              <div class="flex gap-2">
-                <button class="bg-green-600 text-white px-4 py-2 rounded-lg hover:bg-green-700 transition-colors text-sm">
-                  CSV
-                </button>
-                <button class="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition-colors text-sm">
-                  JSON
-                </button>
-                <button class="bg-purple-600 text-white px-4 py-2 rounded-lg hover:bg-purple-700 transition-colors text-sm">
-                  Excel
-                </button>
+            <div class="space-y-4">
+              <div>
+                <label class="block text-gray-300 font-semibold mb-2">🪙 Токен</label>
+                <select 
+                  value={calcToken()}
+                  onChange={(e) => setCalcToken(e.target.value)}
+                  class="w-full bg-gray-700/50 text-white px-4 py-3 rounded-xl border border-gray-600 focus:border-yellow-500 focus:outline-none"
+                >
+                  <For each={popularTokens}>
+                    {(token) => (
+                      <option value={token.id}>{token.name} ({token.symbol})</option>
+                    )}
+                  </For>
+                </select>
               </div>
+              
+              <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                  <label class="block text-gray-300 font-semibold mb-2">💵 Сумма инвестиций ($)</label>
+                  <input 
+                    type="number" 
+                    value={investAmount()}
+                    onInput={(e) => setInvestAmount(e.target.value)}
+                    placeholder="1000"
+                    class="w-full bg-gray-700/50 text-white px-4 py-3 rounded-xl border border-gray-600 focus:border-yellow-500 focus:outline-none"
+                  />
+                </div>
+                <div>
+                  <label class="block text-gray-300 font-semibold mb-2">📈 Комиссии (%)</label>
+                  <input 
+                    type="number" 
+                    value={fees()}
+                    onInput={(e) => setFees(e.target.value)}
+                    placeholder="0.1"
+                    step="0.01"
+                    class="w-full bg-gray-700/50 text-white px-4 py-3 rounded-xl border border-gray-600 focus:border-yellow-500 focus:outline-none"
+                  />
+                </div>
+              </div>
+              
+              <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                  <label class="block text-gray-300 font-semibold mb-2">📅 Дата покупки</label>
+                  <input 
+                    type="date"
+                    value={buyDate()}
+                    onInput={(e) => setBuyDate(e.target.value)}
+                    max="2024-10-10"
+                    class="w-full bg-gray-700/50 text-white px-4 py-3 rounded-xl border border-gray-600 focus:border-yellow-500 focus:outline-none"
+                  />
+                </div>
+                <div>
+                  <label class="block text-gray-300 font-semibold mb-2">📅 Дата продажи</label>
+                  <input 
+                    type="date"
+                    value={sellDate()}
+                    onInput={(e) => setSellDate(e.target.value)}
+                    max="2024-10-10"
+                    class="w-full bg-gray-700/50 text-white px-4 py-3 rounded-xl border border-gray-600 focus:border-yellow-500 focus:outline-none"
+                  />
+                </div>
+              </div>
+              
+              <div class="flex items-center gap-3">
+                <input 
+                  type="checkbox" 
+                  id="reinvest" 
+                  checked={reinvest()}
+                  onChange={(e) => setReinvest(e.target.checked)}
+                  class="w-5 h-5 rounded bg-gray-700 border-gray-600 text-yellow-500 focus:ring-yellow-500"
+                />
+                <label for="reinvest" class="text-gray-300 font-semibold">🔄 Реинвестирование прибыли</label>
+              </div>
+              
+              <button 
+                onClick={calculateProfit}
+                disabled={calcLoading()}
+                class="w-full bg-gradient-to-r from-yellow-500 to-orange-500 text-white py-4 rounded-xl hover:from-yellow-600 hover:to-orange-600 transition-all duration-300 font-bold text-lg disabled:opacity-50"
+              >
+                {calcLoading() ? '⏳ Расчет...' : '🚀 Рассчитать прибыль'}
+              </button>
+              
+              <Show when={calcResult()}>
+                <div class="mt-6 p-4 bg-gradient-to-r from-green-900/30 to-blue-900/30 rounded-xl border border-green-500/30">
+                  <Show when={calcResult().error}>
+                    <div class="text-red-400 font-semibold">❌ {calcResult().error}</div>
+                  </Show>
+                  <Show when={!calcResult().error}>
+                    <h4 class="text-lg font-bold text-white mb-3">📊 Результаты расчета:</h4>
+                    <div class="grid grid-cols-2 gap-3 text-sm">
+                      <div>
+                        <span class="text-gray-400">💰 Инвестиция:</span>
+                        <span class="text-white font-semibold ml-2">${calcResult().investment?.toLocaleString()}</span>
+                      </div>
+                      <div>
+                        <span class="text-gray-400">🪙 Количество токенов:</span>
+                        <span class="text-white font-semibold ml-2">{calcResult().tokensAmount?.toFixed(6)}</span>
+                      </div>
+                      <div>
+                        <span class="text-gray-400">📈 Цена покупки:</span>
+                        <span class="text-white font-semibold ml-2">${calcResult().buyPrice?.toLocaleString()}</span>
+                      </div>
+                      <div>
+                        <span class="text-gray-400">📈 Цена продажи:</span>
+                        <span class="text-white font-semibold ml-2">${calcResult().sellPrice?.toLocaleString()}</span>
+                      </div>
+                      <div>
+                        <span class="text-gray-400">💸 Комиссии:</span>
+                        <span class="text-red-400 font-semibold ml-2">-${calcResult().totalFees?.toFixed(2)}</span>
+                      </div>
+                      <div>
+                        <span class="text-gray-400">⏱️ Период:</span>
+                        <span class="text-white font-semibold ml-2">{calcResult().duration} дней</span>
+                      </div>
+                      <div class="col-span-2 mt-2 pt-2 border-t border-gray-600">
+                        <div class={`text-lg font-bold ${calcResult().profit >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+                          🎯 Прибыль: {calcResult().profit >= 0 ? '+' : ''}${calcResult().profit?.toFixed(2)} 
+                          ({calcResult().profitPercent >= 0 ? '+' : ''}{calcResult().profitPercent?.toFixed(2)}%)
+                        </div>
+                      </div>
+                    </div>
+                  </Show>
+                </div>
+              </Show>
             </div>
           </div>
         </PremiumGate>
       </div>
 
-      <Show when={!isPremium()}>
-        <div class="bg-gradient-to-r from-purple-900/50 to-blue-900/50 rounded-xl p-8 border border-purple-500/30 text-center mb-8">
-          <div class="text-6xl mb-4">🚀</div>
-          <h3 class="text-2xl font-bold text-white mb-4">
-            Раскройте потенциал профессиональной аналитики
+      {/* Экспорт данных */}
+      <PremiumGate feature="Экспорт данных">
+        <div class="bg-gradient-to-br from-gray-800/90 to-gray-900/90 backdrop-blur-sm rounded-2xl p-6 border border-purple-500/30 shadow-xl mb-8">
+          <h3 class="text-2xl font-bold text-white mb-4 flex items-center gap-3">
+            📋 Экспорт данных
           </h3>
-          <p class="text-gray-300 mb-6 max-w-2xl mx-auto">
-            Получите доступ к полному набору аналитических инструментов, интерактивным графикам и возможности экспорта данных.
-          </p>
           
-          <button 
-            onClick={() => window.upgradeSubscription && window.upgradeSubscription()}
-            class="bg-gradient-to-r from-purple-600 to-blue-600 text-white px-8 py-3 rounded-lg hover:opacity-90 transition-opacity font-medium"
-          >
-            Обновить до Premium ($9.99/мес)
-          </button>
+          <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <div class="space-y-4">
+              <div>
+                <label class="block text-gray-300 font-semibold mb-2">📊 Тип данных</label>
+                <select 
+                  value={dataType()}
+                  onChange={(e) => setDataType(e.target.value)}
+                  class="w-full bg-gray-700/50 text-white px-4 py-3 rounded-xl border border-gray-600 focus:border-purple-500 focus:outline-none"
+                >
+                  <option value="prices">Исторические цены</option>
+                  <option value="volumes">Объемы торгов</option>
+                  <option value="market_cap">Рыночная капитализация</option>
+                  <option value="all">Все данные</option>
+                </select>
+              </div>
+              
+              <div>
+                <label class="block text-gray-300 font-semibold mb-3">📁 Формат экспорта</label>
+                <div class="flex gap-3">
+                  <button 
+                    onClick={() => exportData('CSV')}
+                    class="flex-1 bg-gradient-to-r from-green-500 to-teal-500 text-white px-4 py-3 rounded-xl hover:from-green-600 hover:to-teal-600 transition-all duration-300 font-semibold"
+                  >
+                    📄 CSV
+                  </button>
+                  <button 
+                    onClick={() => exportData('JSON')}
+                    class="flex-1 bg-gradient-to-r from-blue-500 to-indigo-500 text-white px-4 py-3 rounded-xl hover:from-blue-600 hover:to-indigo-600 transition-all duration-300 font-semibold"
+                  >
+                    🗂️ JSON
+                  </button>
+                  <button 
+                    onClick={() => isPremium() ? exportData('Excel') : window.upgradeSubscription && window.upgradeSubscription()}
+                    class="flex-1 bg-gradient-to-r from-purple-500 to-pink-500 text-white px-4 py-3 rounded-xl hover:from-purple-600 hover:to-pink-600 transition-all duration-300 font-semibold"
+                  >
+                    📊 Excel*
+                  </button>
+                </div>
+                <p class="text-gray-400 text-sm mt-2">*Excel доступен только в Premium</p>
+              </div>
+            </div>
+            
+            <div class="bg-gray-900/50 rounded-xl p-4 border border-gray-700/50">
+              <h4 class="text-white font-semibold mb-3">👀 Предварительный просмотр</h4>
+              <div class="text-xs text-gray-400 font-mono bg-black/30 p-3 rounded-lg overflow-x-auto">
+                <div class="text-green-400"># Crypto Analytics Export</div>
+                <div class="text-blue-400">Токен,Название,Цена,ATH,ATL,%ATH</div>
+                <div>BTC,Bitcoin,{athAtlData()[0]?.current?.toLocaleString() || '43250'},69000,3200,-37.3%</div>
+                <div>ETH,Ethereum,{athAtlData()[1]?.current?.toLocaleString() || '2680'},4878,0.43,+623444%</div>
+                <div class="text-gray-600">...</div>
+              </div>
+              <div class="mt-3 text-sm text-gray-400">
+                📈 Данные включают: {athAtlData().length} токенов
+              </div>
+            </div>
+          </div>
+        </div>
+      </PremiumGate>
+
+      {/* CTA для Free пользователей */}
+      <Show when={!isPremium()}>
+        <div class="bg-gradient-to-br from-purple-900/80 to-pink-900/80 backdrop-blur-sm rounded-2xl p-8 border border-purple-500/50 text-center relative overflow-hidden">
+          <div class="absolute inset-0 bg-gradient-to-br from-purple-500/10 to-pink-500/10"></div>
+          <div class="relative z-10">
+            <div class="text-8xl mb-6">🚀</div>
+            <h3 class="text-3xl font-bold text-white mb-4">
+              Раскройте потенциал профессиональной аналитики
+            </h3>
+            <p class="text-xl text-gray-300 mb-8 max-w-3xl mx-auto">
+              Получите доступ к полному набору аналитических инструментов, интерактивным графикам, 
+              калькулятору прибыли и возможности экспорта данных в Excel.
+            </p>
+            
+            <button 
+              onClick={() => window.upgradeSubscription && window.upgradeSubscription()}
+              class="bg-gradient-to-r from-purple-600 to-pink-600 text-white px-12 py-4 rounded-2xl hover:from-purple-700 hover:to-pink-700 transition-all duration-300 font-bold text-lg shadow-xl scale-105 hover:scale-110"
+            >
+              💎 Обновить до Premium ($9.99/мес)
+            </button>
+          </div>
         </div>
       </Show>
     </div>

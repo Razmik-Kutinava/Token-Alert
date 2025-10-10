@@ -14,7 +14,8 @@
     "chart.js": "^4.5.0",
     "chartjs-adapter-date-fns": "^3.0.0",
     "lucide-solid": "^0.295.0",
-    "solid-js": "^1.8.15"
+    "solid-js": "^1.8.15",
+    "xlsx": "^0.18.5"
   },
   "devDependencies": {
     "autoprefixer": "^10.4.17",
