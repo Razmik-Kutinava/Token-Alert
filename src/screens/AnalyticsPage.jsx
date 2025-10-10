@@ -1,4 +1,5 @@
 import { createSignal, createEffect, For, Show, onMount } from 'solid-js';
+import cryptoAPI from '../services/cryptoAPI';
 
 export function AnalyticsPage({ user, tokens, livePrices }) {
   const isPremium = () => user?.subscription === 'premium';
@@ -9,6 +10,7 @@ export function AnalyticsPage({ user, tokens, livePrices }) {
   const [athAtlData, setAthAtlData] = createSignal([]);
   const [loading, setLoading] = createSignal(false);
   const [chartData, setChartData] = createSignal([]);
+  const [apiStatus, setApiStatus] = createSignal('connecting'); // connecting, online, offline
   
   // Калькулятор состояния
   const [calcToken, setCalcToken] = createSignal('bitcoin');
@@ -40,50 +42,71 @@ export function AnalyticsPage({ user, tokens, livePrices }) {
   // Загрузка ATH/ATL данных
   const loadATHATLData = async () => {
     setLoading(true);
+    setApiStatus('connecting');
+    
     try {
-      const promises = selectedTokens().slice(0, 5).map(async (tokenId) => {
+      console.log('🔄 Загрузка данных для токенов:', selectedTokens());
+      
+      // Получаем рыночные данные
+      const marketData = await cryptoAPI.getCoinsMarket(selectedTokens().slice(0, 5).join(','));
+      console.log('📊 Рыночные данные получены:', marketData);
+
+      if (!marketData || marketData.length === 0) {
+        console.warn('⚠️ Нет рыночных данных');
+        setApiStatus('offline');
+        setAthAtlData([]);
+        return;
+      }
+
+      setApiStatus('online');
+
+      // Получаем детальные данные для каждой монеты
+      const detailPromises = marketData.map(async (coin) => {
         try {
-          // Получаем основные данные
-          const marketResponse = await fetch(
-            `https://api.coingecko.com/api/v3/coins/markets?vs_currency=usd&ids=${tokenId}&order=market_cap_desc&per_page=1&page=1&sparkline=false`
-          );
-          const marketData = await marketResponse.json();
+          console.log(`🔍 Загружаем детали для ${coin.id}...`);
+          const details = await cryptoAPI.getCoinDetails(coin.id);
           
-          if (!marketData[0]) return null;
-          
-          // Получаем детальные данные для ATH/ATL
-          const detailResponse = await fetch(
-            `https://api.coingecko.com/api/v3/coins/${tokenId}?localization=false&tickers=false&market_data=true`
-          );
-          const detail = await detailResponse.json();
-          
-          const coin = marketData[0];
-          const market = detail.market_data;
-          
-          return {
-            id: tokenId,
+          if (!details) {
+            console.warn(`⚠️ Нет деталей для ${coin.id}`);
+            return null;
+          }
+
+          const current = coin.current_price;
+          const ath = details.market_data.ath.usd;
+          const atl = details.market_data.atl.usd;
+
+          const result = {
+            id: coin.id,
             symbol: coin.symbol.toUpperCase(),
             name: coin.name,
             image: coin.image,
-            current: coin.current_price,
-            ath: market.ath.usd,
-            atl: market.atl.usd,
-            athPercent: ((coin.current_price - market.ath.usd) / market.ath.usd * 100),
-            atlPercent: ((coin.current_price - market.atl.usd) / market.atl.usd * 100),
-            athDate: new Date(market.ath_date.usd).toLocaleDateString('ru-RU'),
-            atlDate: new Date(market.atl_date.usd).toLocaleDateString('ru-RU'),
-            change24h: coin.price_change_percentage_24h
+            current: current,
+            ath: ath,
+            atl: atl,
+            athPercent: ((current - ath) / ath * 100),
+            atlPercent: ((current - atl) / atl * 100),
+            athDate: new Date(details.market_data.ath_date.usd).toLocaleDateString('ru-RU'),
+            atlDate: new Date(details.market_data.atl_date.usd).toLocaleDateString('ru-RU'),
+            change24h: coin.price_change_percentage_24h || 0
           };
+
+          console.log(`✅ Данные для ${coin.symbol}:`, result);
+          return result;
         } catch (error) {
-          console.error(`Ошибка загрузки ${tokenId}:`, error);
+          console.error(`❌ Ошибка загрузки деталей для ${coin.id}:`, error);
           return null;
         }
       });
       
-      const results = await Promise.all(promises);
-      setAthAtlData(results.filter(Boolean));
+      const results = await Promise.all(detailPromises);
+      const validResults = results.filter(Boolean);
+      
+      console.log('✅ Все данные загружены:', validResults);
+      setAthAtlData(validResults);
     } catch (error) {
-      console.error('Ошибка загрузки данных:', error);
+      console.error('❌ Ошибка загрузки данных:', error);
+      setApiStatus('offline');
+      setAthAtlData([]);
     } finally {
       setLoading(false);
     }
@@ -91,24 +114,22 @@ export function AnalyticsPage({ user, tokens, livePrices }) {
 
   // Расчет прибыли
   const calculateProfit = async () => {
-    if (!investAmount() || !buyDate() || !sellDate()) return;
+    if (!investAmount() || !buyDate() || !sellDate()) {
+      setCalcResult({ error: 'Заполните все обязательные поля' });
+      return;
+    }
     
     setCalcLoading(true);
     try {
-      // Получаем историческую цену на дату покупки
-      const buyDateFormatted = buyDate().split('-').reverse().join('-');
-      const sellDateFormatted = sellDate().split('-').reverse().join('-');
+      console.log('💰 Расчет прибыли для:', calcToken(), buyDate(), sellDate());
       
-      const [buyResponse, sellResponse] = await Promise.all([
-        fetch(`https://api.coingecko.com/api/v3/coins/${calcToken()}/history?date=${buyDateFormatted}`),
-        fetch(`https://api.coingecko.com/api/v3/coins/${calcToken()}/history?date=${sellDateFormatted}`)
+      // Получаем историческую цену на дату покупки и продажи
+      const [buyPrice, sellPrice] = await Promise.all([
+        cryptoAPI.getHistoricalPrice(calcToken(), buyDate()),
+        cryptoAPI.getHistoricalPrice(calcToken(), sellDate())
       ]);
       
-      const buyData = await buyResponse.json();
-      const sellData = await sellResponse.json();
-      
-      const buyPrice = buyData.market_data?.current_price?.usd || 0;
-      const sellPrice = sellData.market_data?.current_price?.usd || 0;
+      console.log('📈 Цены получены:', { buyPrice, sellPrice });
       
       if (!buyPrice || !sellPrice) {
         setCalcResult({ error: 'Не удалось получить исторические цены' });
@@ -125,7 +146,7 @@ export function AnalyticsPage({ user, tokens, livePrices }) {
       const profit = sellValue - investment - totalFees;
       const profitPercent = (profit / investment) * 100;
       
-      setCalcResult({
+      const result = {
         buyPrice,
         sellPrice,
         tokensAmount,
@@ -135,10 +156,13 @@ export function AnalyticsPage({ user, tokens, livePrices }) {
         profit,
         profitPercent,
         duration: Math.ceil((new Date(sellDate()) - new Date(buyDate())) / (1000 * 60 * 60 * 24))
-      });
+      };
+      
+      console.log('✅ Результат расчета:', result);
+      setCalcResult(result);
     } catch (error) {
-      console.error('Ошибка расчета:', error);
-      setCalcResult({ error: 'Ошибка расчета прибыли' });
+      console.error('❌ Ошибка расчета:', error);
+      setCalcResult({ error: 'Ошибка расчета прибыли: ' + error.message });
     } finally {
       setCalcLoading(false);
     }
@@ -224,6 +248,17 @@ export function AnalyticsPage({ user, tokens, livePrices }) {
 
   onMount(() => {
     loadATHATLData();
+    
+    // Автообновление каждые 30 секунд
+    const interval = setInterval(() => {
+      if (!loading()) {
+        console.log('🔄 Автообновление данных...');
+        loadATHATLData();
+      }
+    }, 30000);
+
+    // Очищаем интервал при размонтировании
+    return () => clearInterval(interval);
   });
 
   const PremiumGate = ({ children, feature }) => (
@@ -269,11 +304,32 @@ export function AnalyticsPage({ user, tokens, livePrices }) {
                 </p>
               </div>
             </div>
-            <div class="bg-gradient-to-r from-pink-500 to-orange-500 px-6 py-3 rounded-full shadow-lg">
-              <span class="text-white font-bold flex items-center gap-2">
-                <div class="w-3 h-3 bg-white rounded-full animate-pulse"></div>
-                Premium
-              </span>
+            <div class="flex items-center gap-4">
+              {/* API Статус */}
+              <div class={`px-4 py-2 rounded-full flex items-center gap-2 ${
+                apiStatus() === 'online' ? 'bg-green-500/20 border border-green-500/30' :
+                apiStatus() === 'offline' ? 'bg-red-500/20 border border-red-500/30' :
+                'bg-yellow-500/20 border border-yellow-500/30'
+              }`}>
+                <div class={`w-3 h-3 rounded-full ${
+                  apiStatus() === 'online' ? 'bg-green-400 animate-pulse' :
+                  apiStatus() === 'offline' ? 'bg-red-400' :
+                  'bg-yellow-400 animate-ping'
+                }`}></div>
+                <span class="text-white text-sm font-semibold">
+                  {apiStatus() === 'online' ? '🟢 API Подключен' :
+                   apiStatus() === 'offline' ? '🔴 API Офлайн' :
+                   '🟡 Подключение...'}
+                </span>
+              </div>
+              
+              {/* Premium Badge */}
+              <div class="bg-gradient-to-r from-pink-500 to-orange-500 px-6 py-3 rounded-full shadow-lg">
+                <span class="text-white font-bold flex items-center gap-2">
+                  <div class="w-3 h-3 bg-white rounded-full animate-pulse"></div>
+                  Premium
+                </span>
+              </div>
             </div>
           </div>
         </div>
@@ -353,16 +409,58 @@ export function AnalyticsPage({ user, tokens, livePrices }) {
               fallback={
                 <div class="text-center py-12">
                   <Show when={loading()}>
-                    <div class="text-6xl mb-4">⏳</div>
-                    <div class="text-xl text-gray-300 font-semibold">Загрузка данных...</div>
+                    <div class="text-6xl mb-4 animate-bounce">⏳</div>
+                    <div class="text-xl text-gray-300 font-semibold">Загрузка данных из API...</div>
+                    <div class="text-sm text-gray-400 mt-2">
+                      {apiStatus() === 'connecting' && '🔄 Подключение к CoinGecko API...'}
+                      {apiStatus() === 'online' && '✅ Получение актуальных данных...'}
+                      {apiStatus() === 'offline' && '⚠️ Используются демо данные'}
+                    </div>
                   </Show>
                   <Show when={!loading() && athAtlData().length === 0}>
                     <div class="text-6xl mb-4">📊</div>
                     <div class="text-xl text-gray-300">Нет данных для отображения</div>
+                    <button 
+                      onClick={loadATHATLData}
+                      class="mt-4 bg-gradient-to-r from-blue-500 to-purple-500 text-white px-6 py-2 rounded-xl hover:from-blue-600 hover:to-purple-600 transition-all duration-300"
+                    >
+                      🔄 Попробовать снова
+                    </button>
                   </Show>
                 </div>
               }
             >
+              <div class="mb-4 text-center">
+                <div class="text-sm text-gray-400">
+                  📡 Данные загружены: {new Date().toLocaleTimeString('ru-RU')} | 
+                  Статус API: {apiStatus() === 'online' ? '🟢 Онлайн' : apiStatus() === 'offline' ? '🔴 Офлайн' : '🟡 Подключение'}
+                </div>
+              </div>
+              
+              <div class="flex justify-between items-center mb-4">
+                <button 
+                  onClick={loadATHATLData}
+                  disabled={loading()}
+                  class="bg-gradient-to-r from-green-500 to-blue-500 text-white px-6 py-2 rounded-xl hover:from-green-600 hover:to-blue-600 transition-all duration-300 font-semibold disabled:opacity-50 flex items-center gap-2"
+                >
+                  {loading() ? (
+                    <>
+                      <div class="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+                      Обновление...
+                    </>
+                  ) : (
+                    <>
+                      🔄 Обновить данные
+                    </>
+                  )}
+                </button>
+                
+                <div class="text-sm text-gray-400">
+                  📊 Показано: {athAtlData().length} токенов | 
+                  🔄 Автообновление: каждые 30 сек
+                </div>
+              </div>
+              
               <div class="overflow-x-auto">
                 <table class="w-full text-sm">
                   <thead>
@@ -373,6 +471,7 @@ export function AnalyticsPage({ user, tokens, livePrices }) {
                       <th class="text-right py-3 text-gray-300 font-bold">ATL</th>
                       <th class="text-right py-3 text-gray-300 font-bold">% от ATH</th>
                       <th class="text-right py-3 text-gray-300 font-bold">% от ATL</th>
+                      <th class="text-right py-3 text-gray-300 font-bold">24ч</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -381,7 +480,12 @@ export function AnalyticsPage({ user, tokens, livePrices }) {
                         <tr class="border-b border-gray-700/50 hover:bg-gray-700/30 transition-colors">
                           <td class="py-4">
                             <div class="flex items-center gap-3">
-                              <img src={token.image} alt={token.symbol} class="w-8 h-8 rounded-full" />
+                              <img 
+                                src={token.image} 
+                                alt={token.symbol} 
+                                class="w-8 h-8 rounded-full"
+                                onError={(e) => e.target.src = 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMzIiIGhlaWdodD0iMzIiIHZpZXdCb3g9IjAgMCAzMiAzMiIgZmlsbD0ibm9uZSIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj4KPGNpcmNsZSBjeD0iMTYiIGN5PSIxNiIgcj0iMTYiIGZpbGw9IiM2MzY2RjEiLz4KPHR0ZXh0IHg9IjE2IiB5PSIyMSIgZm9udC1mYW1pbHk9IkFyaWFsIiBmb250LXNpemU9IjEyIiBmaWxsPSJ3aGl0ZSIgdGV4dC1hbmNob3I9Im1pZGRsZSI+Pz88L3RleHQ+Cjwvc3ZnPgo='}
+                              />
                               <div>
                                 <div class="font-bold text-white">{token.symbol}</div>
                                 <div class="text-xs text-gray-400">{token.name}</div>
@@ -389,19 +493,22 @@ export function AnalyticsPage({ user, tokens, livePrices }) {
                             </div>
                           </td>
                           <td class="text-right text-white font-semibold">
-                            ${token.current?.toLocaleString()}
+                            ${token.current?.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 6 })}
                           </td>
                           <td class="text-right text-green-400 font-semibold">
-                            ${token.ath?.toLocaleString()}
+                            ${token.ath?.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                           </td>
                           <td class="text-right text-red-400 font-semibold">
-                            ${token.atl?.toFixed(6)}
+                            ${token.atl?.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 8 })}
                           </td>
                           <td class={`text-right font-bold ${token.athPercent >= -10 ? 'text-green-400' : token.athPercent >= -50 ? 'text-yellow-400' : 'text-red-400'}`}>
                             {token.athPercent?.toFixed(1)}%
                           </td>
                           <td class={`text-right font-bold ${token.atlPercent >= 1000 ? 'text-green-400' : token.atlPercent >= 100 ? 'text-yellow-400' : 'text-red-400'}`}>
-                            +{token.atlPercent?.toFixed(0)}%
+                            +{token.atlPercent?.toLocaleString('en-US', { maximumFractionDigits: 0 })}%
+                          </td>
+                          <td class={`text-right font-bold ${token.change24h >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+                            {token.change24h >= 0 ? '+' : ''}{token.change24h?.toFixed(2)}%
                           </td>
                         </tr>
                       )}
@@ -410,14 +517,6 @@ export function AnalyticsPage({ user, tokens, livePrices }) {
                 </table>
               </div>
             </Show>
-            
-            <button 
-              onClick={loadATHATLData}
-              disabled={loading()}
-              class="mt-4 w-full bg-gradient-to-r from-green-500 to-blue-500 text-white py-3 rounded-xl hover:from-green-600 hover:to-blue-600 transition-all duration-300 font-semibold disabled:opacity-50"
-            >
-              {loading() ? '⏳ Обновление...' : '🔄 Обновить данные'}
-            </button>
           </div>
         </PremiumGate>
 
