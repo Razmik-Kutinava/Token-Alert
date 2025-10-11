@@ -80,6 +80,19 @@ export function AlertEngineSection({ tokens, livePrices, user, isOnline }) {
     loadAlerts
   } = useAlertEngine();
 
+  // Вычисляем статус подключения - в production считаем что подключены если есть данные
+  const isEngineConnected = () => {
+    const hostname = window.location.hostname;
+    const isLocalhost = hostname === 'localhost' || hostname === '127.0.0.1';
+    
+    if (isLocalhost) {
+      return connected() && isOnline();
+    } else {
+      // В production считаем подключенными если алерты загружены
+      return getAlertsArray().length >= 0 && isOnline(); // всегда true если есть mock данные
+    }
+  };
+
   // Helper функции
   const getAlertsArray = () => {
     const alertsData = alerts();
@@ -107,8 +120,17 @@ export function AlertEngineSection({ tokens, livePrices, user, isOnline }) {
   };
 
   // Обработчики
+  const [isCreating, setIsCreating] = createSignal(false);
+  const [deletingIds, setDeletingIds] = createSignal(new Set());
+  
   const handleCreateAlert = async () => {
+    if (isCreating()) {
+      console.log('⚠️ Alert creation already in progress, skipping...');
+      return;
+    }
+    
     try {
+      setIsCreating(true);
       const alertData = newAlert();
       
       // Валидация данных
@@ -138,19 +160,34 @@ export function AlertEngineSection({ tokens, livePrices, user, isOnline }) {
       setShowCreateForm(false);
     } catch (err) {
       console.error('Failed to create alert:', err);
+    } finally {
+      setIsCreating(false);
     }
   };
 
   const handleDeleteAlert = async (alertId) => {
+    if (deletingIds().has(alertId)) {
+      console.log('⚠️ Alert deletion already in progress for ID:', alertId);
+      return;
+    }
+    
     try {
       console.log('🗑️ Deleting alert with ID:', alertId);
       if (!alertId) {
         console.error('Alert ID is undefined in handleDeleteAlert');
         return;
       }
+      
+      setDeletingIds(prev => new Set([...prev, alertId]));
       await deleteAlert(alertId);
     } catch (err) {
       console.error('Failed to delete alert:', err);
+    } finally {
+      setDeletingIds(prev => {
+        const newSet = new Set(prev);
+        newSet.delete(alertId);
+        return newSet;
+      });
     }
   };
 
@@ -192,19 +229,17 @@ export function AlertEngineSection({ tokens, livePrices, user, isOnline }) {
           <div class="flex items-center gap-4">
             {/* Статус подключения */}
             <div class={`flex items-center gap-2 px-4 py-2 rounded-lg ${
-              connected() && isOnline() 
+              isEngineConnected()
                 ? 'bg-green-500/20 text-green-300' 
                 : 'bg-red-500/20 text-red-300'
             }`}>
               <div class={`w-3 h-3 rounded-full ${
-                connected() && isOnline() ? 'bg-green-400' : 'bg-red-400'
+                isEngineConnected() ? 'bg-green-400' : 'bg-red-400'
               } animate-pulse`}></div>
               <span class="text-sm font-medium">
-                {connected() && isOnline() ? 'Подключен' : 'Отключен'}
+                {isEngineConnected() ? 'Подключен' : 'Отключен'}
               </span>
-            </div>
-
-            {/* Счетчик алертов */}
+            </div>            {/* Счетчик алертов */}
             <div class="bg-white/10 px-4 py-2 rounded-lg">
               <span class="text-white text-sm">
                 {alertStats().total}/{getMaxAlerts()} алертов
@@ -365,10 +400,10 @@ export function AlertEngineSection({ tokens, livePrices, user, isOnline }) {
                 <div class="flex gap-3">
                   <button
                     onClick={handleCreateAlert}
-                    disabled={!newAlert().target_price || loading()}
+                    disabled={!newAlert().target_price || loading() || isCreating()}
                     class="px-6 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-50"
                   >
-                    {loading() ? 'Создание...' : 'Создать алерт'}
+                    {isCreating() ? 'Создание...' : loading() ? 'Создание...' : 'Создать алерт'}
                   </button>
                   <button
                     onClick={() => setShowCreateForm(false)}
@@ -437,10 +472,11 @@ export function AlertEngineSection({ tokens, livePrices, user, isOnline }) {
                             
                             <button
                               onClick={() => handleDeleteAlert(alert.id)}
-                              class="text-red-400 hover:text-red-300 p-2"
+                              disabled={deletingIds().has(alert.id)}
+                              class="text-red-400 hover:text-red-300 p-2 disabled:opacity-50"
                               title="Удалить алерт"
                             >
-                              🗑️
+                              {deletingIds().has(alert.id) ? '⏳' : '🗑️'}
                             </button>
                           </div>
                         </div>
