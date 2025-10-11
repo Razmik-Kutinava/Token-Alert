@@ -138,13 +138,23 @@ export function AlertEngineSection({ tokens, livePrices, user, isOnline }) {
 
   // Статистика
   const alertStats = () => {
-    const alertsArray = getAlertsArray();
-    return {
-      total: alertsArray.length,
-      active: alertsArray.filter(a => a.is_active).length,
-      triggered: alertsArray.filter(a => a.last_triggered > 0).length,
-      available: getMaxAlerts() - alertsArray.length
-    };
+    try {
+      const alertsArray = getAlertsArray();
+      return {
+        total: alertsArray.length,
+        active: alertsArray.filter(a => a && a.is_active).length,
+        triggered: alertsArray.filter(a => a && a.last_triggered && a.last_triggered > 0).length,
+        available: Math.max(0, getMaxAlerts() - alertsArray.length)
+      };
+    } catch (error) {
+      console.error('Error calculating alert stats:', error);
+      return {
+        total: 0,
+        active: 0,
+        triggered: 0,
+        available: getMaxAlerts()
+      };
+    }
   };
 
   return (
@@ -195,7 +205,10 @@ export function AlertEngineSection({ tokens, livePrices, user, isOnline }) {
       <div class="border-b border-gray-700">
         <nav class="flex space-x-8 px-6">
           <button 
-            onClick={() => setCurrentTab('alerts')}
+            onClick={() => {
+              console.log('Switching to alerts tab');
+              setCurrentTab('alerts');
+            }}
             class={`py-4 px-2 border-b-2 font-medium text-sm ${
               currentTab() === 'alerts'
                 ? 'border-blue-500 text-blue-400'
@@ -205,7 +218,10 @@ export function AlertEngineSection({ tokens, livePrices, user, isOnline }) {
             ⚡ Алерты ({alertStats().total})
           </button>
           <button 
-            onClick={() => setCurrentTab('stats')}
+            onClick={() => {
+              console.log('Switching to stats tab');
+              setCurrentTab('stats');
+            }}
             class={`py-4 px-2 border-b-2 font-medium text-sm ${
               currentTab() === 'stats'
                 ? 'border-blue-500 text-blue-400'
@@ -215,7 +231,10 @@ export function AlertEngineSection({ tokens, livePrices, user, isOnline }) {
             📊 Статистика
           </button>
           <button 
-            onClick={() => setCurrentTab('settings')}
+            onClick={() => {
+              console.log('Switching to settings tab');
+              setCurrentTab('settings');
+            }}
             class={`py-4 px-2 border-b-2 font-medium text-sm ${
               currentTab() === 'settings'
                 ? 'border-blue-500 text-blue-400'
