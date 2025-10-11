@@ -314,16 +314,8 @@ export function useAlertEngine() {
       // API возвращает { status: 'success', alert: {...} }
       const newAlert = response.alert || response;
       
-      // Проверяем что алерт с таким ID еще не существует
-      setAlerts(prev => {
-        const exists = prev.find(alert => alert.id === newAlert.id);
-        if (exists) {
-          console.warn('⚠️ Alert with ID already exists, skipping:', newAlert.id);
-          return prev;
-        }
-        console.log('✅ Adding new alert to list:', newAlert.id);
-        return [...prev, newAlert];
-      });
+      console.log('✅ Adding new alert to list:', newAlert.id);
+      setAlerts(prev => [...prev, newAlert]);
       
       return newAlert;
     } catch (err) {

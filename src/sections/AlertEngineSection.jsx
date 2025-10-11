@@ -165,7 +165,7 @@ export function AlertEngineSection({ tokens, livePrices, user, isOnline }) {
     } catch (err) {
       console.error('❌ Failed to create alert:', err);
     } finally {
-      setTimeout(() => setIsCreating(false), 1000); // Блокируем на 1 секунду
+      setTimeout(() => setIsCreating(false), 500); // Сократил до 500мс
     }
   };
 
