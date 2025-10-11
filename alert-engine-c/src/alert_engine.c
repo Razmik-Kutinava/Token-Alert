@@ -1,6 +1,7 @@
 #include "../include/alert_engine.h"
 #include "../include/market_client.h"
 #include "../include/websocket_server.h"
+#include "../include/http_server.h"
 #include <sqlite3.h>
 #include <pthread.h>
 #include <signal.h>
@@ -66,6 +67,18 @@ int alert_engine_init(void) {
         return -1;
     }
     
+    // Инициализация WebSocket сервера
+    if (ws_server_init(WS_PORT) != 0) {
+        alert_log("ERROR", "Failed to initialize WebSocket server");
+        return -1;
+    }
+    
+    // Инициализация HTTP сервера
+    if (http_server_init(HTTP_PORT) != 0) {
+        alert_log("ERROR", "Failed to initialize HTTP server");
+        return -1;
+    }
+    
     // Загрузка алертов из базы данных
     if (load_alerts_from_db() != 0) {
         alert_log("WARNING", "Failed to load alerts from database");
@@ -124,6 +137,12 @@ void alert_engine_cleanup(void) {
     
     // Завершение market client
     market_client_cleanup();
+    
+    // Завершение WebSocket сервера
+    ws_server_cleanup();
+    
+    // Завершение HTTP сервера
+    http_server_cleanup();
     
     alert_log("INFO", "Alert Engine shutdown complete");
 }
@@ -560,5 +579,145 @@ int get_max_alerts_for_tier(UserTier tier) {
             return MAX_ALERTS_PREMIUM;
         default:
             return MAX_ALERTS_FREE;
+    }
+}
+
+/**
+ * Загрузка алертов из базы данных
+ */
+static int load_alerts_from_db(void) {
+    if (!g_database || !g_alert_manager) {
+        return -1;
+    }
+    
+    const char* select_sql = "SELECT id, user_id, symbol, type, target_value, status, "
+                            "created_at, last_triggered, trigger_count, message, "
+                            "is_repeatable, cooldown_minutes, required_tier FROM alerts "
+                            "WHERE status != ?";
+    
+    sqlite3_stmt* stmt;
+    int rc = sqlite3_prepare_v2(g_database, select_sql, -1, &stmt, NULL);
+    if (rc != SQLITE_OK) {
+        alert_log("ERROR", "Failed to prepare SELECT statement");
+        return -1;
+    }
+    
+    sqlite3_bind_int(stmt, 1, ALERT_STATUS_INACTIVE);
+    
+    int loaded_count = 0;
+    while (sqlite3_step(stmt) == SQLITE_ROW && loaded_count < g_alert_manager->capacity) {
+        Alert* alert = &g_alert_manager->alerts[loaded_count];
+        
+        alert->id = sqlite3_column_int(stmt, 0);
+        strncpy(alert->user_id, (const char*)sqlite3_column_text(stmt, 1), sizeof(alert->user_id) - 1);
+        strncpy(alert->symbol, (const char*)sqlite3_column_text(stmt, 2), sizeof(alert->symbol) - 1);
+        alert->type = (AlertType)sqlite3_column_int(stmt, 3);
+        alert->target_value = sqlite3_column_double(stmt, 4);
+        alert->status = (AlertStatus)sqlite3_column_int(stmt, 5);
+        alert->created_at = sqlite3_column_int64(stmt, 6);
+        alert->last_triggered = sqlite3_column_int64(stmt, 7);
+        alert->trigger_count = sqlite3_column_int(stmt, 8);
+        
+        const char* message = (const char*)sqlite3_column_text(stmt, 9);
+        if (message) {
+            strncpy(alert->message, message, sizeof(alert->message) - 1);
+        }
+        
+        alert->is_repeatable = sqlite3_column_int(stmt, 10) != 0;
+        alert->cooldown_minutes = sqlite3_column_int(stmt, 11);
+        alert->required_tier = (UserTier)sqlite3_column_int(stmt, 12);
+        
+        // Обнуляем runtime поля
+        alert->current_value = 0.0;
+        alert->last_checked = 0;
+        
+        loaded_count++;
+    }
+    
+    sqlite3_finalize(stmt);
+    g_alert_manager->count = loaded_count;
+    
+    char log_msg[128];
+    snprintf(log_msg, sizeof(log_msg), "Loaded %d alerts from database", loaded_count);
+    alert_log("INFO", log_msg);
+    
+    return 0;
+}
+
+/**
+ * Сохранение алерта в базу данных
+ */
+static int save_alert_to_db(Alert* alert) {
+    if (!g_database || !alert) {
+        return -1;
+    }
+    
+    const char* insert_sql = "INSERT INTO alerts (id, user_id, symbol, type, target_value, "
+                            "status, created_at, last_triggered, trigger_count, message, "
+                            "is_repeatable, cooldown_minutes, required_tier) "
+                            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
+    
+    sqlite3_stmt* stmt;
+    int rc = sqlite3_prepare_v2(g_database, insert_sql, -1, &stmt, NULL);
+    if (rc != SQLITE_OK) {
+        alert_log("ERROR", "Failed to prepare INSERT statement");
+        return -1;
+    }
+    
+    sqlite3_bind_int(stmt, 1, alert->id);
+    sqlite3_bind_text(stmt, 2, alert->user_id, -1, SQLITE_STATIC);
+    sqlite3_bind_text(stmt, 3, alert->symbol, -1, SQLITE_STATIC);
+    sqlite3_bind_int(stmt, 4, alert->type);
+    sqlite3_bind_double(stmt, 5, alert->target_value);
+    sqlite3_bind_int(stmt, 6, alert->status);
+    sqlite3_bind_int64(stmt, 7, alert->created_at);
+    sqlite3_bind_int64(stmt, 8, alert->last_triggered);
+    sqlite3_bind_int(stmt, 9, alert->trigger_count);
+    sqlite3_bind_text(stmt, 10, alert->message, -1, SQLITE_STATIC);
+    sqlite3_bind_int(stmt, 11, alert->is_repeatable ? 1 : 0);
+    sqlite3_bind_int(stmt, 12, alert->cooldown_minutes);
+    sqlite3_bind_int(stmt, 13, alert->required_tier);
+    
+    rc = sqlite3_step(stmt);
+    sqlite3_finalize(stmt);
+    
+    if (rc == SQLITE_DONE) {
+        alert_log("INFO", "Alert saved to database");
+        return 0;
+    } else {
+        alert_log("ERROR", "Failed to save alert to database");
+        return -1;
+    }
+}
+
+/**
+ * Удаление алерта из базы данных
+ */
+static int delete_alert_from_db(int alert_id) {
+    if (!g_database) {
+        return -1;
+    }
+    
+    const char* delete_sql = "UPDATE alerts SET status = ? WHERE id = ?";
+    
+    sqlite3_stmt* stmt;
+    int rc = sqlite3_prepare_v2(g_database, delete_sql, -1, &stmt, NULL);
+    if (rc != SQLITE_OK) {
+        alert_log("ERROR", "Failed to prepare DELETE statement");
+        return -1;
+    }
+    
+    sqlite3_bind_int(stmt, 1, ALERT_STATUS_INACTIVE);
+    sqlite3_bind_int(stmt, 2, alert_id);
+    
+    rc = sqlite3_step(stmt);
+    sqlite3_finalize(stmt);
+    
+    if (rc == SQLITE_DONE) {
+        alert_log("INFO", "Alert deleted from database");
+        return 0;
+    } else {
+        alert_log("ERROR", "Failed to delete alert from database");
+        return -1;
     }
 }

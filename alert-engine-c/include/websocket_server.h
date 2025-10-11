@@ -1,8 +1,46 @@
 #ifndef WEBSOCKET_SERVER_H
 #define WEBSOCKET_SERVER_H
 
-#include <libwebsockets.h>
-#include <cjson/cJSON.h>
+#ifdef _WIN32
+    // Windows заглушки для WebSocket
+    #include <windows.h>
+    
+    struct lws;
+    enum lws_callback_reasons { LWS_CALLBACK_ESTABLISHED = 0 };
+    
+    #define LWS_PRE 0
+    #define LWS_WRITE_TEXT 0
+#else
+    // Unix WebSocket
+    #include <libwebsockets.h>
+#endif
+
+#ifdef _WIN32
+    // Windows заглушки для cJSON
+    typedef struct cJSON {
+        struct cJSON *next;
+        struct cJSON *prev;
+        struct cJSON *child;
+        int type;
+        char *valuestring;
+        double valuedouble;
+        int valueint;
+        char *string;
+    } cJSON;
+    
+    cJSON* cJSON_CreateObject(void);
+    cJSON* cJSON_CreateArray(void);
+    void cJSON_Delete(cJSON *c);
+    void cJSON_AddStringToObject(cJSON * const object, const char * const name, const char * const string);
+    void cJSON_AddNumberToObject(cJSON * const object, const char * const name, const double number);
+    void cJSON_AddBoolToObject(cJSON * const object, const char * const name, const int boolean);
+    void cJSON_AddItemToObject(cJSON *object, const char *string, cJSON *item);
+    void cJSON_AddItemToArray(cJSON *array, cJSON *item);
+    char* cJSON_Print(const cJSON *item);
+#else
+    #include <cjson/cJSON.h>
+#endif
+
 #include "alert_engine.h"
 
 #define WS_PORT 8081
@@ -49,13 +87,15 @@ typedef struct {
 } WSManager;
 
 // Инициализация и завершение WebSocket сервера
+int ws_server_init(int port);
+void ws_server_cleanup(void);
 int ws_server_start(void);
 void ws_server_stop(void);
 void ws_server_run(void);
 
 // Управление соединениями
-WSConnection* ws_add_connection(struct lws* wsi, const char* user_id);
-void ws_remove_connection(struct lws* wsi);
+int ws_add_connection(struct lws* wsi, const char* user_id);
+int ws_remove_connection(struct lws* wsi);
 WSConnection* ws_find_connection(struct lws* wsi);
 WSConnection* ws_find_user_connections(const char* user_id, int* count);
 

@@ -1,8 +1,41 @@
 #ifndef MARKET_CLIENT_H
 #define MARKET_CLIENT_H
 
-#include <curl/curl.h>
-#include <cjson/cJSON.h>
+#ifdef _WIN32
+    // Windows HTTP API
+    #include <windows.h>
+    #include <winhttp.h>
+    #pragma comment(lib, "winhttp.lib")
+    
+    // Заглушки для cJSON на Windows
+    typedef struct cJSON {
+        struct cJSON *next;
+        struct cJSON *prev;
+        struct cJSON *child;
+        int type;
+        char *valuestring;
+        double valuedouble;
+        int valueint;
+        char *string;
+    } cJSON;
+    
+    // Простые функции cJSON для Windows
+    cJSON* cJSON_Parse(const char *value);
+    void cJSON_Delete(cJSON *c);
+    cJSON* cJSON_GetObjectItem(const cJSON * const object, const char * const string);
+    int cJSON_IsString(const cJSON * const item);
+    int cJSON_IsNumber(const cJSON * const item);
+    int cJSON_IsArray(const cJSON * const item);
+    char* cJSON_GetStringValue(const cJSON * const item);
+    double cJSON_GetNumberValue(const cJSON * const item);
+    
+    #define cJSON_ArrayForEach(element, array) for(element = (array != NULL) ? (array)->child : NULL; element != NULL; element = element->next)
+#else
+    // Unix includes
+    #include <curl/curl.h>
+    #include <cjson/cJSON.h>
+#endif
+
 #include "alert_engine.h"
 
 #define API_BASE_URL "https://api.coingecko.com/api/v3"

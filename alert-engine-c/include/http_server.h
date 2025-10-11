@@ -1,11 +1,55 @@
 #ifndef HTTP_SERVER_H
 #define HTTP_SERVER_H
 
-#include <microhttpd.h>
-#include <cjson/cJSON.h>
+#ifdef _WIN32
+    // Windows HTTP сервер
+    #include <windows.h>
+    #include <winhttp.h>
+    
+    struct MHD_Daemon;
+    struct MHD_Connection;
+    struct MHD_Response;
+    
+    #define MHD_HTTP_OK 200
+    #define MHD_HTTP_NOT_FOUND 404
+    #define MHD_USE_SELECT_INTERNALLY 0
+    #define MHD_OPTION_END 0
+    #define MHD_RESPMEM_PERSISTENT 0
+    #define MHD_RESPMEM_MUST_COPY 1
+    
+    // Заглушки для MicroHTTPD на Windows
+    struct MHD_Daemon* MHD_start_daemon(unsigned int flags, unsigned short port, 
+                                       void* apc, void* apc_cls,
+                                       void* dh, void* dh_cls, ...);
+    void MHD_stop_daemon(struct MHD_Daemon* daemon);
+    struct MHD_Response* MHD_create_response_from_buffer(size_t size, void* buffer, int mode);
+    void MHD_destroy_response(struct MHD_Response* response);
+    int MHD_queue_response(struct MHD_Connection* connection, unsigned int status_code, struct MHD_Response* response);
+    int MHD_add_response_header(struct MHD_Response* response, const char* header, const char* value);
+#else
+    // Unix HTTP сервер
+    #include <microhttpd.h>
+#endif
+
+#ifdef _WIN32
+    // Заглушки для cJSON на Windows (те же что в websocket_server.h)
+    typedef struct cJSON {
+        struct cJSON *next;
+        struct cJSON *prev;
+        struct cJSON *child;
+        int type;
+        char *valuestring;
+        double valuedouble;
+        int valueint;
+        char *string;
+    } cJSON;
+#else
+    #include <cjson/cJSON.h>
+#endif
+
 #include "alert_engine.h"
 
-#define HTTP_PORT 8080
+#define HTTP_PORT 8090
 #define MAX_REQUEST_SIZE 4096
 #define MAX_RESPONSE_SIZE 8192
 
@@ -37,6 +81,9 @@ typedef struct {
 } HttpResponse;
 
 // Инициализация и завершение HTTP сервера
+int http_server_init(int port);
+void http_server_cleanup(void);
+bool http_server_is_running(void);
 int http_server_start(void);
 void http_server_stop(void);
 
