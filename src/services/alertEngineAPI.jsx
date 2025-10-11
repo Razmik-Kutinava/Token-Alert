@@ -5,31 +5,58 @@ class AlertEngineAPI {
     const hostname = window.location.hostname;
     const isLocalhost = hostname === 'localhost' || hostname === '127.0.0.1';
     
-    console.log('� Alert Engine API:', {
+    console.log('🔧 Alert Engine API:', {
       hostname: hostname,
       isLocalhost: isLocalhost,
-      enabled: isLocalhost
+      enabled: true // Теперь всегда включен
     });
     
     if (isLocalhost) {
-      // Localhost - используем локальный сервер
+      // Localhost - используем реальный mock сервер
       this.baseURL = import.meta.env.VITE_ALERT_ENGINE_HTTP_URL || 'http://localhost:8090';
       this.wsURL = import.meta.env.VITE_ALERT_ENGINE_WS_URL || 'ws://localhost:8091';
       this.isAlertEngineEnabled = true;
+      this.useMockData = false;
     } else {
-      // Production - отключаем Alert Engine
+      // Production - используем встроенные mock данные
       this.baseURL = null;
       this.wsURL = null;
-      this.isAlertEngineEnabled = false;
+      this.isAlertEngineEnabled = true;
+      this.useMockData = true;
     }
     
     this.websocket = null;
     this.subscribers = new Set();
+    
+    // Mock данные для production
+    this.mockAlerts = [
+      {
+        id: '1',
+        symbol: 'BTC',
+        condition: 'above',
+        target_price: 65000,
+        current_price: 63245,
+        is_active: true,
+        created_at: Date.now() - 86400000,
+        priority: 'high'
+      },
+      {
+        id: '2',
+        symbol: 'ETH',
+        condition: 'below',
+        target_price: 3000,
+        current_price: 3456,
+        is_active: true,
+        created_at: Date.now() - 43200000,
+        priority: 'medium'
+      }
+    ];
   }
 
   // Проверка доступности Alert Engine
   isAlertEngineAvailable() {
-    return this.isAlertEngineEnabled && this.baseURL && this.wsURL;
+    // Теперь всегда доступен (либо реальный API, либо mock)
+    return this.isAlertEngineEnabled;
   }
 
   // Подключение к WebSocket для real-time уведомлений
@@ -80,11 +107,74 @@ class AlertEngineAPI {
     });
   }
 
+  // Mock запросы для production
+  async handleMockRequest(endpoint, options = {}) {
+    console.log('🎭 Mock request:', endpoint, options.method || 'GET');
+    
+    // Симулируем задержку сети
+    await new Promise(resolve => setTimeout(resolve, 100));
+    
+    if (endpoint === '/api/health') {
+      return { status: 'ok', mode: 'mock', timestamp: Date.now() };
+    }
+    
+    if (endpoint === '/api/alerts') {
+      if (options.method === 'POST') {
+        const newAlert = {
+          id: String(Date.now()),
+          ...JSON.parse(options.body || '{}'),
+          created_at: Date.now(),
+          is_active: true
+        };
+        this.mockAlerts.push(newAlert);
+        return { status: 'success', alert: newAlert };
+      }
+      return { status: 'success', alerts: this.mockAlerts, total: this.mockAlerts.length };
+    }
+    
+    if (endpoint.startsWith('/api/alerts/') && options.method === 'DELETE') {
+      const id = endpoint.split('/').pop();
+      this.mockAlerts = this.mockAlerts.filter(a => a.id !== id);
+      return { status: 'success', message: 'Alert deleted' };
+    }
+    
+    if (endpoint === '/api/market-data') {
+      return {
+        status: 'success',
+        data: {
+          BTC: { price: 63245.67, change_24h: 2.34 },
+          ETH: { price: 3456.78, change_24h: -1.23 },
+          SOL: { price: 145.23, change_24h: 5.67 }
+        }
+      };
+    }
+    
+    if (endpoint === '/api/stats') {
+      return {
+        status: 'success',
+        stats: {
+          active_alerts: this.mockAlerts.filter(a => a.is_active).length,
+          total_alerts: this.mockAlerts.length,
+          monitored_symbols: [...new Set(this.mockAlerts.map(a => a.symbol))].length,
+          uptime: 3600,
+          last_update: Date.now()
+        }
+      };
+    }
+    
+    throw new Error(`Mock endpoint not implemented: ${endpoint}`);
+  }
+
   // HTTP запросы к C API
   async request(endpoint, options = {}) {
+    // В production используем mock данные
+    if (this.useMockData) {
+      return this.handleMockRequest(endpoint, options);
+    }
+    
     if (!this.isAlertEngineAvailable()) {
-      console.warn('Alert Engine not available in production environment');
-      throw new Error('Alert Engine not available in production');
+      console.warn('Alert Engine not available');
+      throw new Error('Alert Engine not available');
     }
     
     const url = `${this.baseURL}${endpoint}`;
