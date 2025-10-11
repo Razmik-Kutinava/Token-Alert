@@ -85,6 +85,7 @@ export function AlertEngineSection({ tokens, livePrices, user, isOnline }) {
   const getMaxAlerts = () => user?.subscription === 'premium' ? 50 : 10;
   
   const getTokenPrice = (symbol) => {
+    if (!symbol) return 0;
     const pricesArray = Array.isArray(livePrices()) ? livePrices() : [];
     const found = pricesArray.find(token => 
       token.id === symbol.toLowerCase() || 
@@ -94,6 +95,7 @@ export function AlertEngineSection({ tokens, livePrices, user, isOnline }) {
   };
 
   const getTokenBySymbol = (symbol) => {
+    if (!symbol) return null;
     return tokens.find(token => 
       token.symbol?.toLowerCase() === symbol.toLowerCase() ||
       token.id === symbol.toLowerCase()
@@ -103,7 +105,15 @@ export function AlertEngineSection({ tokens, livePrices, user, isOnline }) {
   // Обработчики
   const handleCreateAlert = async () => {
     try {
-      await createAlert(newAlert());
+      const alertData = newAlert();
+      
+      // Валидация данных
+      if (!alertData.symbol || !alertData.target_price) {
+        console.error('Missing required fields for alert creation');
+        return;
+      }
+      
+      await createAlert(alertData);
       setNewAlert({
         symbol: 'BTC',
         condition: 'above',

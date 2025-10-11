@@ -127,18 +127,26 @@ class AlertEngineAPI {
   async handleMockRequest(endpoint, options = {}) {
     console.log('🎭 Mock request:', endpoint, options.method || 'GET');
     
-    // Симулируем задержку сети
-    await new Promise(resolve => setTimeout(resolve, 100));
-    
-    if (endpoint === '/api/health') {
-      return { status: 'ok', mode: 'mock', timestamp: Date.now() };
-    }
+    try {
+      // Симулируем задержку сети
+      await new Promise(resolve => setTimeout(resolve, 100));
+      
+      if (endpoint === '/api/health') {
+        return { status: 'ok', mode: 'mock', timestamp: Date.now() };
+      }
     
     if (endpoint === '/api/alerts') {
       if (options.method === 'POST') {
+        const requestData = JSON.parse(options.body || '{}');
         const newAlert = {
           id: String(Date.now()),
-          ...JSON.parse(options.body || '{}'),
+          symbol: requestData.symbol || 'BTC',
+          condition: requestData.condition || 'above',
+          target_price: requestData.target_price || 0,
+          current_price: requestData.current_price || 0,
+          alert_type: requestData.alert_type || 'price',
+          priority: requestData.priority || 'medium',
+          category: requestData.category || 'price_monitoring',
           created_at: Date.now(),
           is_active: true
         };
@@ -179,6 +187,10 @@ class AlertEngineAPI {
     }
     
     throw new Error(`Mock endpoint not implemented: ${endpoint}`);
+    } catch (error) {
+      console.error('Mock request error:', error);
+      throw error;
+    }
   }
 
   // HTTP запросы к C API
