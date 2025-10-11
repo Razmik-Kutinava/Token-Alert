@@ -305,27 +305,26 @@ export function useAlertEngine() {
 
   // Создание алерта
   const [creatingAlert, setCreatingAlert] = createSignal(false);
-  
+
   const createAlert = async (alertData) => {
     if (creatingAlert()) {
       console.log('🚫 Alert creation already in progress, ignoring duplicate call');
       return;
     }
-    
+
     try {
       setCreatingAlert(true);
       setError(null);
       console.log('🔧 Creating alert with data:', alertData);
       const response = await alertEngineAPI.createAlert(alertData);
       console.log('📝 Alert creation response:', response);
-      
-      // API возвращает { status: 'success', alert: {...} }
-      const newAlert = response.alert || response;
-      
-      console.log('✅ Adding new alert to list:', newAlert.id);
-      setAlerts(prev => [...prev, newAlert]);
-      
-      return newAlert;
+
+      const createdAlert = response.alert || response;
+
+      // Обновляем список алертов из источника (mock/real API)
+      await loadAlerts();
+
+      return createdAlert;
     } catch (err) {
       setError(err.message);
       throw err;
@@ -345,7 +344,7 @@ export function useAlertEngine() {
       setError(null);
       console.log('🗑️ Deleting alert with ID:', alertId);
       await alertEngineAPI.deleteAlert(alertId);
-      setAlerts(prev => prev.filter(alert => alert.id !== alertId));
+      await loadAlerts();
     } catch (err) {
       setError(err.message);
       throw err;
