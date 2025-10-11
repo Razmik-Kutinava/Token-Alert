@@ -96,7 +96,6 @@ export function AlertEngineSection({ tokens, livePrices, user, isOnline }) {
   // Helper функции
   const getAlertsArray = () => {
     const alertsData = alerts();
-    console.log('📋 Current alerts data:', alertsData);
     return Array.isArray(alertsData) ? alertsData : [];
   };
   const getMaxAlerts = () => user?.subscription === 'premium' ? 50 : 10;
@@ -123,7 +122,9 @@ export function AlertEngineSection({ tokens, livePrices, user, isOnline }) {
   const [isCreating, setIsCreating] = createSignal(false);
   const [deletingIds, setDeletingIds] = createSignal(new Set());
   
-  const handleCreateAlert = async () => {
+  const handleCreateAlert = async (e) => {
+    e?.preventDefault(); // Предотвращаем отправку формы
+    
     if (isCreating()) {
       console.log('⚠️ Alert creation already in progress, skipping...');
       return;
@@ -132,6 +133,8 @@ export function AlertEngineSection({ tokens, livePrices, user, isOnline }) {
     try {
       setIsCreating(true);
       const alertData = newAlert();
+      
+      console.log('🚀 Starting alert creation with data:', alertData);
       
       // Валидация данных
       if (!alertData.symbol || !alertData.target_price) {
@@ -147,7 +150,8 @@ export function AlertEngineSection({ tokens, livePrices, user, isOnline }) {
       };
       
       console.log('📤 Sending alert data:', preparedData);
-      await createAlert(preparedData);
+      const result = await createAlert(preparedData);
+      console.log('✅ Alert created successfully:', result);
       
       setNewAlert({
         symbol: 'BTC',
@@ -159,9 +163,9 @@ export function AlertEngineSection({ tokens, livePrices, user, isOnline }) {
       });
       setShowCreateForm(false);
     } catch (err) {
-      console.error('Failed to create alert:', err);
+      console.error('❌ Failed to create alert:', err);
     } finally {
-      setIsCreating(false);
+      setTimeout(() => setIsCreating(false), 1000); // Блокируем на 1 секунду
     }
   };
 
@@ -399,11 +403,12 @@ export function AlertEngineSection({ tokens, livePrices, user, isOnline }) {
 
                 <div class="flex gap-3">
                   <button
-                    onClick={handleCreateAlert}
+                    type="button"
+                    onMouseDown={handleCreateAlert}
                     disabled={!newAlert().target_price || loading() || isCreating()}
-                    class="px-6 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-50"
+                    class="px-6 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed"
                   >
-                    {isCreating() ? 'Создание...' : loading() ? 'Создание...' : 'Создать алерт'}
+                    {isCreating() ? '⏳ Создание...' : loading() ? 'Загрузка...' : 'Создать алерт'}
                   </button>
                   <button
                     onClick={() => setShowCreateForm(false)}
