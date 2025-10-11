@@ -307,7 +307,12 @@ export function useAlertEngine() {
   const createAlert = async (alertData) => {
     try {
       setError(null);
-      const newAlert = await alertEngineAPI.createAlert(alertData);
+      console.log('🔧 Creating alert with data:', alertData);
+      const response = await alertEngineAPI.createAlert(alertData);
+      console.log('📝 Alert creation response:', response);
+      
+      // API возвращает { status: 'success', alert: {...} }
+      const newAlert = response.alert || response;
       setAlerts(prev => [...prev, newAlert]);
       return newAlert;
     } catch (err) {
@@ -319,7 +324,13 @@ export function useAlertEngine() {
   // Удаление алерта
   const deleteAlert = async (alertId) => {
     try {
+      if (!alertId) {
+        console.error('Alert ID is undefined');
+        throw new Error('Alert ID is required');
+      }
+      
       setError(null);
+      console.log('🗑️ Deleting alert with ID:', alertId);
       await alertEngineAPI.deleteAlert(alertId);
       setAlerts(prev => prev.filter(alert => alert.id !== alertId));
     } catch (err) {

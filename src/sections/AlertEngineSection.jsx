@@ -81,7 +81,11 @@ export function AlertEngineSection({ tokens, livePrices, user, isOnline }) {
   } = useAlertEngine();
 
   // Helper функции
-  const getAlertsArray = () => Array.isArray(alerts()) ? alerts() : [];
+  const getAlertsArray = () => {
+    const alertsData = alerts();
+    console.log('📋 Current alerts data:', alertsData);
+    return Array.isArray(alertsData) ? alertsData : [];
+  };
   const getMaxAlerts = () => user?.subscription === 'premium' ? 50 : 10;
   
   const getTokenPrice = (symbol) => {
@@ -113,7 +117,16 @@ export function AlertEngineSection({ tokens, livePrices, user, isOnline }) {
         return;
       }
       
-      await createAlert(alertData);
+      // Подготовка данных для отправки
+      const preparedData = {
+        ...alertData,
+        target_price: parseFloat(alertData.target_price),
+        current_price: getTokenPrice(alertData.symbol)
+      };
+      
+      console.log('📤 Sending alert data:', preparedData);
+      await createAlert(preparedData);
+      
       setNewAlert({
         symbol: 'BTC',
         condition: 'above',
@@ -130,6 +143,11 @@ export function AlertEngineSection({ tokens, livePrices, user, isOnline }) {
 
   const handleDeleteAlert = async (alertId) => {
     try {
+      console.log('🗑️ Deleting alert with ID:', alertId);
+      if (!alertId) {
+        console.error('Alert ID is undefined in handleDeleteAlert');
+        return;
+      }
       await deleteAlert(alertId);
     } catch (err) {
       console.error('Failed to delete alert:', err);
