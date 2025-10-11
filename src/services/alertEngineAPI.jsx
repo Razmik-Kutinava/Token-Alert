@@ -304,8 +304,16 @@ export function useAlertEngine() {
   };
 
   // Создание алерта
+  const [creatingAlert, setCreatingAlert] = createSignal(false);
+  
   const createAlert = async (alertData) => {
+    if (creatingAlert()) {
+      console.log('🚫 Alert creation already in progress, ignoring duplicate call');
+      return;
+    }
+    
     try {
+      setCreatingAlert(true);
       setError(null);
       console.log('🔧 Creating alert with data:', alertData);
       const response = await alertEngineAPI.createAlert(alertData);
@@ -321,6 +329,8 @@ export function useAlertEngine() {
     } catch (err) {
       setError(err.message);
       throw err;
+    } finally {
+      setTimeout(() => setCreatingAlert(false), 1000);
     }
   };
 

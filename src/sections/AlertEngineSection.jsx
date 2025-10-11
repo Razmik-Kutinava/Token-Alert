@@ -121,17 +121,20 @@ export function AlertEngineSection({ tokens, livePrices, user, isOnline }) {
   // Обработчики
   const [isCreating, setIsCreating] = createSignal(false);
   const [deletingIds, setDeletingIds] = createSignal(new Set());
+  const [lastCreatedTime, setLastCreatedTime] = createSignal(0);
   
   const handleCreateAlert = async (e) => {
     e?.preventDefault(); // Предотвращаем отправку формы
     
-    if (isCreating()) {
-      console.log('⚠️ Alert creation already in progress, skipping...');
+    const now = Date.now();
+    if (isCreating() || (now - lastCreatedTime() < 2000)) {
+      console.log('⚠️ Alert creation blocked - too soon or already in progress');
       return;
     }
     
     try {
       setIsCreating(true);
+      setLastCreatedTime(now);
       const alertData = newAlert();
       
       console.log('🚀 Starting alert creation with data:', alertData);
