@@ -8,7 +8,10 @@ class AlertEngineAPI {
     console.log('🔧 Alert Engine API:', {
       hostname: hostname,
       isLocalhost: isLocalhost,
-      enabled: true // Теперь всегда включен
+      enabled: true, // Теперь всегда включен
+      baseURL: this.baseURL,
+      wsURL: this.wsURL,
+      useMockData: this.useMockData
     });
     
     if (isLocalhost) {
@@ -59,10 +62,21 @@ class AlertEngineAPI {
     return this.isAlertEngineEnabled;
   }
 
+  // Проверка доступности WebSocket
+  isWebSocketAvailable() {
+    return this.isAlertEngineEnabled && this.wsURL !== null;
+  }
+
   // Подключение к WebSocket для real-time уведомлений
   connectWebSocket() {
-    if (!this.isAlertEngineAvailable() || this.websocket) return;
+    if (!this.isWebSocketAvailable() || this.websocket) {
+      if (!this.wsURL) {
+        console.log('🔇 WebSocket disabled in production (using mock data)');
+      }
+      return;
+    }
 
+    console.log('🔌 Connecting to WebSocket:', this.wsURL);
     this.websocket = new WebSocket(this.wsURL);
     
     this.websocket.onopen = () => {
@@ -81,8 +95,10 @@ class AlertEngineAPI {
     this.websocket.onclose = () => {
       console.log('Alert Engine WebSocket disconnected');
       this.websocket = null;
-      // Автоматическое переподключение через 5 секунд
-      setTimeout(() => this.connectWebSocket(), 5000);
+      // Автоматическое переподключение через 5 секунд (только если WebSocket доступен)
+      if (this.isWebSocketAvailable()) {
+        setTimeout(() => this.connectWebSocket(), 5000);
+      }
     };
 
     this.websocket.onerror = (error) => {
